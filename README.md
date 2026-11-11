@@ -1,35 +1,85 @@
 # agent-tidy
 
-让 coding agent 少写文档、不越界、不谎报完成。一条命令把同一套全局规则、Skills 和 Hooks 安装到 Claude Code、Codex 和 DeepSeek Harness。
+让 coding agent 少写文档、不越界、改动保持一致、不谎报完成。一条命令把同一套全局规则、Skills 和 Hooks 安装到 Claude Code、Codex 和 DeepSeek Harness。
 
 ```bash
 npx agent-tidy install            # 交互选择 agent
 npx agent-tidy install -a claude,codex --dry-run
+npx agent-tidy install -a dsh --skip hooks
 npx agent-tidy status
 npx agent-tidy uninstall -a codex
 ```
 
 ## 安装了什么
 
-| 部分 | 内容 | Claude Code | Codex | DeepSeek Harness |
-|---|---|---|---|---|
-| 规则 | `rules/AGENTS.md` | `~/.claude/CLAUDE.md` 托管区块 | `~/.codex/AGENTS.md` 托管区块 | `~/.dsh/AGENTS.md` 托管区块 |
-| Skills | `skills/*` | 软链到 `~/.claude/skills/` | 软链到 `~/.agents/skills/` | 软链到 `~/.agents/skills/` |
-| Hooks | `hooks/*.mjs` | `~/.claude/settings.json` | `~/.codex/hooks.json` | `~/.dsh/hooks.json`（需要 `dsh-hooks-plugin`） |
-| gitignore | `.scratch/`、`.agent-handoff.md`、`*.local.md` | 全局 `core.excludesFile` | 同左 | 同左 |
+| 部分 | Claude Code | Codex | DeepSeek Harness |
+|---|---|---|---|
+| 规则 `rules/AGENTS.md` | `~/.claude/CLAUDE.md` 托管区块 | `~/.codex/AGENTS.md` 托管区块 | `~/.dsh/AGENTS.md` 托管区块 |
+| Skills `skills/*` | 软链到 `~/.claude/skills/` | 软链到 `~/.agents/skills/` | 软链到 `~/.agents/skills/`（与 Codex 共用） |
+| Hooks `hooks/*` | `~/.claude/settings.json` | `~/.codex/hooks.json` | 插件桥读取的文件（默认 `~/.dsh/hooks.json`） |
+| 全局 gitignore | `.scratch/`、`.agent-handoff.md`、`CLAUDE.local.md`、`AGENTS.local.md`，写入 `core.excludesFile` | 同左 | 同左 |
 
-文件先复制到 `~/.agents/agent-tidy/`，各 agent 目录只放托管区块、软链和 hook 条目。重复安装是幂等的；修改前会备份为 `*.agent-tidy.bak`；同名的已有 skill 不会被覆盖；卸载只移除 agent-tidy 自己写入的内容。
+文件先复制到 `~/.agents/agent-tidy/`，各 agent 目录里只放托管区块、软链和 hook 条目。安装器的行为：
+
+- 写入前先预检所有目标配置，任何一个损坏就停止，不会只写一半。
+- 重复安装是幂等的；第一次修改某个文件前备份为 `*.agent-tidy.bak`。
+- 同名的已有 skill 不覆盖。
+- 卸载只移除 agent-tidy 写入的内容；其他 agent 仍在使用时，保留共享目录。
+
+**个人偏好**：写在 `~/.agents/agent-tidy.local.md`（例如"用中文交流"），重新 install 后会合并进规则区块。包本身保持通用。
+
+## 各 agent 安装后要做的事
+
+- **Codex**：新增或修改的 hook 默认不执行。打开 Codex，按提示审批 agent-tidy 的 3 个 hook。`agent-tidy status` 会提示还有几个没审批。
+- **DeepSeek Harness**：hooks 由官方插件桥 `@deepseek-ai/dsh-hooks-claude-code` 执行，需要在 `~/.dsh/cordis.patch.yml` 中挂载它。没挂载时安装器会跳过 dsh 的 hooks。挂载了也不保证它真的在运行（例如插件版本和 dsh 版本不匹配），请新开一个 dsh 会话，确认上下文里出现了本机环境信息。
 
 ## Hooks
 
-- `session-start`：实时输出本机 CPU、内存、磁盘信息（不落盘），并记录会话开始时的工作区基线；会话压缩后重申规则要点。
-- `guard-tool`：遇到 `rm -rf`、`reset --hard`、强推、`DROP`/`DELETE` 等危险命令时要求确认（Codex 不支持询问，改为拒绝）；修改 AGENTS.md、CLAUDE.md 时要求确认。
-- `guard-diff`：结束时只检查**本会话**改动的文件，包括新增文档、写进文档的环境事实、删除测试或加 skip、文档远多于代码。同一组问题只提醒一次。
+| hook | 时机 | 作用 |
+|---|---|---|
+| `session-start` | 会话开始 | 实时输出本机 CPU、内存、磁盘信息（不落盘）；记录工作区基线；会话压缩后重申规则要点 |
+| `guard-tool` | 执行工具前 | 危险命令要求确认（Codex 不支持询问，改为拒绝）；在 Claude Code 和 dsh 中修改 AGENTS.md、CLAUDE.md、rules 前要求确认 |
+| `guard-diff` | 结束前 | 只检查**本会话**改过的文件，同一组问题只提醒一次 |
 
-项目可以在根目录放 `.agent-tidy.json` 声明允许新增文档的路径：`{ "allowDocs": ["openspec/", "docs/adr/"] }`。
+`guard-diff` 检查的内容：
+
+- **文档数量**：新增文档；流程目录（如 `openspec/`）里的文档数量和行数超过上限；文档行数远多于代码。
+- **环境事实**：把"本机/VPS 只有 xx 内存"之类的内容写进了文档或 agent 配置。
+- **测试**：删除测试、加 skip；改了逻辑代码却没有改任何测试。
+- **一致性**：删除或改名的函数、变量、配置项仍出现在其他文件里（文档、注释、调用点）；文档里的 `File.java#symbol` 锚点已经不存在，或文档引用了已删除的文件。
+
+危险命令检测会展开 `bash -c`、`eval`、`$()`、多行脚本，但它只是一张安全网，不是沙箱：`python -c`、执行脚本文件等间接方式无法穷举。真正的防线是 agent 自己的权限配置和沙箱。
+
+### 项目配置 `.agent-tidy.json`（可选）
+
+```json
+{
+  "allowDocs": ["docs/adr/"],
+  "docBudget": { "files": 5, "lines": 200 },
+  "docRatio": { "minLines": 50, "factor": 3 }
+}
+```
+
+- `allowDocs`：允许新增文档的路径前缀。项目根目录有 `openspec/` 时自动加入 `openspec/`。
+- `docBudget`：一次会话里允许目录中新增文档的数量上限，以及文档新增行数的上限。
+- `docRatio`：文档新增行数达到 `minLines`，并且超过代码行数的 `factor` 倍时提醒。
+
+配置格式错误时会在提醒里指出，并按默认值继续检查。
+
+## Skills
+
+| skill | 何时使用 |
+|---|---|
+| `change-impact` | 改了行为、签名、配置项、接口或数据结构；或 guard-diff 提示一致性问题 |
+| `pick-dependency` | 准备自己实现一个组件之前 |
+| `ui-verify` | 前端改动准备说"完成"之前 |
+| `session-handoff` | 需要换会话继续 |
+| `doc-audit` | 清理过期文档、失效链接、文档与代码矛盾 |
 
 ## 开发
 
 ```bash
 npm test
 ```
+
+测试在临时 HOME 中运行，并会清掉 `CLAUDE_CONFIG_DIR`、`CODEX_HOME`、`DSH_HOME` 这几个变量，因为它们的优先级高于 HOME。手工试验时也要清掉它们，否则会写到真实的配置目录。

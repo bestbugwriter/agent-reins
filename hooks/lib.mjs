@@ -55,7 +55,7 @@ export function saveState(input, root, state) {
 }
 
 export function git(root, args) {
-    return execFileSync('git', ['-C', root, ...args], {
+    return execFileSync('git', ['-C', root, '-c', 'core.quotePath=false', ...args], {
         encoding: 'utf8',
         stdio: ['ignore', 'pipe', 'ignore'],
         maxBuffer: 64 * 1024 * 1024,
@@ -70,17 +70,23 @@ export function gitRoot(cwd) {
     }
 }
 
-// 返回 [{ code: 'XY', path }]，包含未跟踪文件（逐个列出）
+export const MAX_ENTRIES = 5000;
+
+// 返回 [{ code: 'XY', path, from? }]，包含未跟踪文件（逐个列出）
 export function gitStatus(root) {
     const out = git(root, ['status', '--porcelain=v1', '-z', '-uall']);
     const parts = out.split('\0').filter(Boolean);
     const entries = [];
     for (let i = 0; i < parts.length; i++) {
         const code = parts[i].slice(0, 2);
-        entries.push({ code, path: parts[i].slice(3) });
-        if (code[0] === 'R' || code[0] === 'C') i++; // 重命名带一个原路径
+        const entry = { code, path: parts[i].slice(3) };
+        if (code[0] === 'R' || code[0] === 'C') entry.from = parts[++i]; // -z 下原路径紧跟在新路径之后
+        entries.push(entry);
     }
-    return entries.slice(0, 5000);
+    if (entries.length > MAX_ENTRIES) {
+        process.stderr.write(`[agent-tidy] 工作区有 ${entries.length} 个改动，只检查前 ${MAX_ENTRIES} 个\n`);
+    }
+    return entries.slice(0, MAX_ENTRIES);
 }
 
 export function fileHash(root, rel) {

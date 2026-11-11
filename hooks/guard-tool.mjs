@@ -1,7 +1,11 @@
 #!/usr/bin/env node
 // PreToolUse：危险命令要求确认；Claude Code / dsh 修改 agent 指令文件时要求确认
 import { readInput, agentArg, emit, runHook } from './lib.mjs';
-import { findDanger, RULE_FILE } from './checks.mjs';
+import { findDanger } from './danger.mjs';
+
+// macOS 默认大小写不敏感，agents.md 与 AGENTS.md 是同一个文件
+const RULE_FILE = /(^|[\/\\])(AGENTS|CLAUDE)(\.local|\.override)?\.md$|[\/\\]\.(claude|codex)[\/\\]rules[\/\\]/i;
+const EDIT_TOOL = /edit|write|str_replace|create|patch/i;
 
 function decide(agent, reason) {
     // Codex 不支持 ask，只能 deny；用户确认后可自己执行该命令
@@ -21,14 +25,13 @@ await runHook(async () => {
     const agent = agentArg();
     const ti = input.tool_input || {};
 
-    let cmd = ti.command ?? ti.cmd;
-    if (Array.isArray(cmd)) cmd = cmd.join(' ');
-    const danger = findDanger(cmd);
+    const danger = findDanger(ti.command ?? ti.cmd);
     if (danger) return decide(agent, `危险操作：${danger}`);
 
+    // Codex 只能 deny，拦截改指令文件代价过高，交给规则约束
     if (agent === 'codex') return;
-    const file = ti.file_path || ti.path || '';
-    if (/Edit|Write/i.test(input.tool_name || '') && RULE_FILE.test(file)) {
+    const file = ti.file_path || ti.path || ti.filePath || '';
+    if (EDIT_TOOL.test(input.tool_name || '') && RULE_FILE.test(file)) {
         decide(agent, `正在修改 agent 指令文件 ${file}，会影响之后的每个会话`);
     }
 });

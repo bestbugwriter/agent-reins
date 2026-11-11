@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import readline from 'node:readline/promises';
 import { AGENTS, AGENT_IDS, detect } from '../src/agents.mjs';
-import { install, uninstall, status, readState, PARTS, VERSION } from '../src/install.mjs';
+import { install, uninstall, status, PARTS, VERSION } from '../src/install.mjs';
 
 const HELP = `agent-tidy ${VERSION}
 让 coding agent 少写文档、不越界、不谎报完成。
@@ -53,11 +53,20 @@ function printStatus() {
     console.log(`agent-tidy ${s.version || '未安装'}   安装目录：${s.kitHome}`);
     for (const r of s.rows) {
         const mark = r.installed ? '●' : '○';
-        console.log(`  ${mark} ${r.label.padEnd(17)} 规则 ${r.rules ? '✓' : '✗'}   skills ${r.skills}/${r.totalSkills}   hooks ${r.hooks}`);
+        const hooks = r.hooksError ? '⚠ 配置损坏' : String(r.hooks);
+        console.log(`  ${mark} ${r.label.padEnd(17)} 规则 ${r.rules ? '✓' : '✗'}   skills ${r.skills}/${r.totalSkills}   hooks ${hooks}`);
+        if (r.hooksError) console.log(`      ${r.hooksError}`);
+        if (r.id === 'dsh' && r.installed) {
+            console.log(r.bridge
+                ? `      hooks 插件桥：${r.bridge.plugin}（${r.bridge.file}）。是否真正执行请新开 dsh 会话确认`
+                : '      hooks 插件桥：未挂载，dsh 的 hooks 不会执行');
+        }
+        if (r.untrusted) console.log(`      ⚠ 有 ${r.untrusted} 个 hook 尚未在 Codex 中审批，审批前不会执行`);
     }
     console.log(`  全局 gitignore：${s.gitignore ? '✓' : '✗'}  ${s.gitignoreFile}`);
-    if (!s.nodeOk) console.log(`  ⚠ hooks 使用的 Node 已不存在（${s.nodeBin}），请重新运行 agent-tidy install`);
-    for (const r of s.rows) if (r.installed && r.hooks && r.note) console.log(`  提示：${r.note}`);
+    console.log(`  个人偏好：${s.overlay || '无（可创建 ~/.agents/agent-tidy.local.md 后重新 install）'}`);
+    if (s.version && !s.kitOk) console.log(`  ⚠ 安装目录缺失或不完整，规则仍在但 skills/hooks 已失效，请重新运行 agent-tidy install`);
+    if (!s.nodeOk) console.log(`  ⚠ 安装时记录的 Node（${s.nodeBin}）已不存在，hooks 会自动改用 PATH 中的 node；建议重新运行 agent-tidy install`);
 }
 
 async function main() {
@@ -78,10 +87,8 @@ async function main() {
     }
 
     if (opts.cmd === 'uninstall') {
-        const agents = opts.agents || readState().agents;
-        if (!agents.length) return console.log('没有已安装的 agent');
-        uninstall({ agents, dryRun: opts.dryRun });
-        console.log(opts.dryRun ? '\n（dry-run，未写入任何文件）' : '\n卸载完成。');
+        uninstall({ agents: opts.agents, dryRun: opts.dryRun });
+        if (opts.dryRun) console.log('\n（dry-run，未写入任何文件）');
         return;
     }
 

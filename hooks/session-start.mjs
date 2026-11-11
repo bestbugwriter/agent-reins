@@ -7,11 +7,11 @@ import { readInput, emit, runHook, gitRoot, loadState, saveState, snapshot } fro
 const PLATFORM = { darwin: 'macOS', linux: 'Linux', win32: 'Windows' };
 
 const COMPACT_REMINDER = `上下文刚被压缩，重申 agent-tidy 要点：
-- 改动与需求成比例，不加需求外的抽象、兜底和测试。
+- 改动范围与需求一致，不加需求外的抽象、兜底和测试。
+- 改了行为、接口或配置，同一次改动里同步测试、文档和注释（change-impact）。
 - 默认不新增文档；过程产物写 .scratch/，不入库。
 - 环境事实不写进入库文件；失效的事实直接删除。
-- 说"完成"必须附证据；不得删改测试来让测试通过。
-- 危险操作先确认，不确定就问。`;
+- 说"完成"必须附证据；不得删改测试来让测试通过。危险操作先确认。`;
 
 const gb = (n) => (n / 1024 ** 3).toFixed(1);
 

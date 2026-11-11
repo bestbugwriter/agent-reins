@@ -5,11 +5,32 @@ import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 
 const home = () => os.homedir();
+const expand = (p) => p.replace(/^~(?=$|[\/\\])/, home());
 export const agentsHome = () => path.join(home(), '.agents');
 export const kitHome = () => path.join(agentsHome(), 'agent-tidy');
+export const overlayFile = () => path.join(agentsHome(), 'agent-tidy.local.md');
 const claudeHome = () => process.env.CLAUDE_CONFIG_DIR || path.join(home(), '.claude');
 const codexHome = () => process.env.CODEX_HOME || path.join(home(), '.codex');
 const dshHome = () => process.env.DSH_HOME || path.join(home(), '.dsh');
+
+// dsh 的 hooks 由 cordis 插件桥执行；找到桥的挂载配置，并以它读取的 configPath 为准
+export function dshBridge() {
+    for (const name of ['cordis.patch.yml', 'cordis.yml']) {
+        const file = path.join(dshHome(), name);
+        let text;
+        try {
+            text = fs.readFileSync(file, 'utf8');
+        } catch {
+            continue;
+        }
+        const m = text.match(/dsh-hooks-(claude-code|codex)[\s\S]*?configPath:\s*["']?([^"'\n]+)["']?/);
+        if (!m) continue;
+        const configPath = expand(m[2].trim());
+        // 相对路径按会话工作目录解析，是项目级配置，全局安装仍写默认位置
+        return { file, plugin: `@deepseek-ai/dsh-hooks-${m[1]}`, configPath: path.isAbsolute(configPath) ? configPath : null };
+    }
+    return null;
+}
 
 export const AGENTS = {
     claude: {
@@ -19,7 +40,6 @@ export const AGENTS = {
         rulesFile: () => path.join(claudeHome(), 'CLAUDE.md'),
         skillsDir: () => path.join(claudeHome(), 'skills'),
         hooksFile: () => path.join(claudeHome(), 'settings.json'),
-        hooksWrapped: true,
         toolMatcher: 'Bash|Edit|Write|MultiEdit',
     },
     codex: {
@@ -29,7 +49,7 @@ export const AGENTS = {
         rulesFile: () => path.join(codexHome(), 'AGENTS.md'),
         skillsDir: () => path.join(agentsHome(), 'skills'),
         hooksFile: () => path.join(codexHome(), 'hooks.json'),
-        hooksWrapped: true,
+        configToml: () => path.join(codexHome(), 'config.toml'),
     },
     dsh: {
         label: 'DeepSeek Harness',
@@ -37,9 +57,7 @@ export const AGENTS = {
         home: dshHome,
         rulesFile: () => path.join(dshHome(), 'AGENTS.md'),
         skillsDir: () => path.join(agentsHome(), 'skills'),
-        hooksFile: () => path.join(dshHome(), 'hooks.json'),
-        hooksWrapped: false,
-        note: 'dsh 的 hooks 需要插件才会生效：dsh plugin --profile web add dsh-hooks-plugin',
+        hooksFile: () => dshBridge()?.configPath || path.join(dshHome(), 'hooks.json'),
     },
 };
 
@@ -61,7 +79,7 @@ export function detect(id) {
 export function gitIgnoreFile() {
     try {
         const v = execFileSync('git', ['config', '--global', '--get', 'core.excludesFile'], { encoding: 'utf8' }).trim();
-        if (v) return v.replace(/^~(?=$|[\/\\])/, home());
+        if (v) return expand(v);
     } catch {
         // 未配置时 git 默认读取 XDG 位置
     }
