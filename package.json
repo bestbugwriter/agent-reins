@@ -1,0 +1,32 @@
+{
+  "name": "agent-tidy",
+  "version": "0.1.0",
+  "description": "让 coding agent 少写文档、不越界、不谎报完成：一套可安装到 Claude Code / Codex / DeepSeek Harness 的全局规则、Skills 与 Hooks",
+  "type": "module",
+  "bin": {
+    "agent-tidy": "bin/agent-tidy.mjs"
+  },
+  "files": [
+    "bin",
+    "src",
+    "rules",
+    "skills",
+    "hooks",
+    "templates"
+  ],
+  "scripts": {
+    "test": "node --test \"test/*.test.mjs\""
+  },
+  "engines": {
+    "node": ">=18.17"
+  },
+  "keywords": [
+    "claude-code",
+    "codex",
+    "deepseek-harness",
+    "agents-md",
+    "skills",
+    "hooks"
+  ],
+  "license": "MIT"
+}
