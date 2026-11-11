@@ -25,6 +25,20 @@ export function emit(obj) {
     process.stdout.write(JSON.stringify(obj));
 }
 
+// macOS 的 os.freemem() 不含可回收的文件缓存，数值常常只有几百 MB，会让 agent 误判内存不足；
+// 按活动监视器的口径用 free + inactive + speculative + purgeable 估算可用内存
+export function availableMemory(platform = process.platform, vmStat = () => execFileSync('vm_stat', { encoding: 'utf8' })) {
+    if (platform !== 'darwin') return os.freemem(); // Linux 下 libuv 返回 MemAvailable
+    try {
+        const out = vmStat();
+        const page = Number(out.match(/page size of (\d+) bytes/)?.[1] || 4096);
+        const pages = (name) => Number(out.match(new RegExp(`Pages ${name}:\\s+(\\d+)`))?.[1] || 0);
+        return (pages('free') + pages('inactive') + pages('speculative') + pages('purgeable')) * page;
+    } catch {
+        return null;
+    }
+}
+
 // hook 自身出错时不能阻断 agent：报到 stderr，正常退出
 export async function runHook(main) {
     try {

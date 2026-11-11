@@ -2,7 +2,7 @@
 // SessionStart：实时提供本机环境（不落盘），记录会话开始时的工作区基线，压缩后重申要点
 import fs from 'node:fs';
 import os from 'node:os';
-import { readInput, emit, runHook, gitRoot, loadState, saveState, snapshot } from './lib.mjs';
+import { readInput, emit, runHook, gitRoot, loadState, saveState, snapshot, availableMemory } from './lib.mjs';
 
 const PLATFORM = { darwin: 'macOS', linux: 'Linux', win32: 'Windows' };
 
@@ -26,10 +26,12 @@ await runHook(async () => {
     } catch {
         // 老版本 Node 没有 statfsSync，省略磁盘信息
     }
+    const avail = availableMemory();
     const lines = [
         `本机环境（会话开始时实时检测，仅用于本次会话判断能否运行重负载；不要写进任何项目文件）：`
             + `${PLATFORM[process.platform] || process.platform} ${os.release()} ${os.arch()}，`
-            + `CPU ${os.cpus().length} 核，内存 ${gb(os.totalmem())} GB（当前空闲约 ${gb(os.freemem())} GB）${disk}。`,
+            + `CPU ${os.cpus().length} 核，内存 ${gb(os.totalmem())} GB`
+            + `${avail === null ? '' : `（当前可用约 ${gb(avail)} GB）`}${disk}。`,
     ];
     if (input.source === 'compact') lines.push(COMPACT_REMINDER);
 
