@@ -2,7 +2,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { AGENTS, kitHome, overlayFile, gitIgnoreFile, dshBridge } from './agents.mjs';
+import { AGENTS, kitHome, overlayFile, gitIgnoreFile, dshBridges, dshProfiles } from './agents.mjs';
 
 export const PKG_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 export const VERSION = JSON.parse(fs.readFileSync(path.join(PKG_ROOT, 'package.json'), 'utf8')).version;
@@ -193,6 +193,10 @@ function rulesBody() {
     return overlay ? `${base}\n\n## 个人偏好（来自 ${overlayFile()}）\n${overlay}` : base;
 }
 
+// dsh 每个挂载了桥的 profile 对应一个文件；其他 agent 只有一个
+const hooksFiles = (a) => (a.hooksFiles ? a.hooksFiles() : [a.hooksFile()]);
+const cleanupFiles = (a) => (a.cleanupHooksFiles ? a.cleanupHooksFiles() : hooksFiles(a));
+
 const statePath = () => path.join(kitHome(), 'state.json');
 
 export function readState() {
@@ -207,7 +211,7 @@ export function readState() {
 // 磁盘上能归属到该 agent 的残留：规则区块或 hook 条目（共享 skills 目录无法归属）
 function hasLeftovers(id) {
     const a = AGENTS[id];
-    return readText(a.rulesFile()).includes(MD_START) || ourHooks(a.hooksFile()).count > 0;
+    return readText(a.rulesFile()).includes(MD_START) || cleanupFiles(a).some((f) => ourHooks(f).count > 0);
 }
 
 function preflight(agents, parts) {
@@ -222,7 +226,7 @@ function preflight(agents, parts) {
     for (const id of agents) {
         const a = AGENTS[id];
         if (parts.includes('rules')) tryRead(() => splitBlock(readText(a.rulesFile()), MD_START, MD_END));
-        if (parts.includes('hooks') && (id !== 'dsh' || dshBridge())) tryRead(() => readJson(a.hooksFile()));
+        if (parts.includes('hooks')) for (const f of hooksFiles(a)) tryRead(() => readJson(f));
     }
     if (parts.includes('gitignore')) tryRead(() => splitBlock(readText(gitIgnoreFile()), IGNORE_START, IGNORE_END));
     if (errors.length) throw new Error(`预检失败，未写入任何文件：\n  - ${errors.join('\n  - ')}`);
@@ -257,17 +261,20 @@ export function install({ agents, parts = PARTS, dryRun = false, log = console.l
             }
         }
         if (parts.includes('hooks')) {
-            if (id === 'dsh' && !dshBridge()) {
-                notes.push('dsh 未挂载 hooks 插件桥（~/.dsh/cordis.patch.yml 中没有 dsh-hooks-claude-code），已跳过 dsh 的 hooks');
-            } else {
-                const file = a.hooksFile();
+            const files = hooksFiles(a);
+            for (const file of files) {
                 const data = readJson(file);
                 const hooks = hooksMap(data);
                 stripOurHooks(hooks);
                 for (const [ev, groups] of Object.entries(hookEntries(id))) (hooks[ev] ??= []).push(...groups);
                 fsx.write(file, `${JSON.stringify(data, null, 2)}\n`);
-                if (id === 'codex') notes.push('Codex 会跳过未审批的新 hook：请打开 Codex，在 hooks 审批提示中信任 agent-tidy 的 3 个 hook');
-                if (id === 'dsh') notes.push('dsh 的 hooks 由插件桥执行，请新开一个 dsh 会话确认环境信息出现在上下文中');
+            }
+            if (id === 'codex') notes.push('Codex 会跳过未审批的新 hook：请打开 Codex，在 hooks 审批提示中信任 agent-tidy 的 3 个 hook');
+            if (id === 'dsh') {
+                const bridged = new Set(dshBridges().map((b) => b.profile));
+                const missing = dshProfiles().filter((p) => !bridged.has(p));
+                if (!files.length) notes.push('dsh 没有任何 profile 挂载 hooks 插件桥（@deepseek-ai/dsh-hooks-claude-code），已跳过 dsh 的 hooks；规则和 skills 已安装');
+                if (missing.length) notes.push(`dsh 的 ${missing.join('、')} profile 没有挂载 hooks 插件桥，这些 profile 中 hooks 不会执行；运行 agent-tidy status 查看详情`);
             }
         }
         // 每完成一个 agent 就记录，中途失败时 uninstall 仍能清理已写入的部分
@@ -308,14 +315,15 @@ export function uninstall({ agents, dryRun = false, log = console.log }) {
                 if (isOurLink(linkPath)) fsx.remove(linkPath);
             }
         }
-        const file = a.hooksFile();
-        const { count, error } = ourHooks(file);
-        if (error) log(`跳过 ${file}：${error}，请手动删除其中包含 agent-tidy/hooks 的条目`);
-        else if (count) {
-            const data = readJson(file);
-            stripOurHooks(hooksMap(data));
-            if (data.hooks && !Object.keys(data.hooks).length) delete data.hooks;
-            fsx.write(file, `${JSON.stringify(data, null, 2)}\n`);
+        for (const file of cleanupFiles(a)) {
+            const { count, error } = ourHooks(file);
+            if (error && fs.existsSync(file)) log(`跳过 ${file}：${error}，请手动删除其中包含 agent-tidy/hooks 的条目`);
+            else if (count) {
+                const data = readJson(file);
+                stripOurHooks(hooksMap(data));
+                if (data.hooks && !Object.keys(data.hooks).length) delete data.hooks;
+                fsx.write(file, `${JSON.stringify(data, null, 2)}\n`);
+            }
         }
     }
 
@@ -338,7 +346,12 @@ export function status() {
     const kitOk = fs.existsSync(path.join(kitHome(), 'hooks', 'guard-diff.mjs'));
     const names = skillNames();
     const rows = Object.entries(AGENTS).map(([id, a]) => {
-        const hooks = ourHooks(a.hooksFile());
+        const results = hooksFiles(a).map((f) => ({ file: f, ...ourHooks(f) }));
+        const hooks = {
+            count: results.reduce((n, r) => n + r.count, 0),
+            found: results.flatMap((r) => r.found),
+            error: results.filter((r) => r.error).map((r) => r.error).join('；') || undefined,
+        };
         const row = {
             id,
             label: a.label,
@@ -348,9 +361,12 @@ export function status() {
             totalSkills: names.length,
             hooks: hooks.count,
             hooksError: hooks.error,
-            hooksFile: a.hooksFile(),
         };
-        if (id === 'dsh') row.bridge = dshBridge();
+        if (id === 'dsh') {
+            const bridges = dshBridges();
+            row.profiles = dshProfiles().map((p) => ({ profile: p, bridge: bridges.find((b) => b.profile === p) || null }));
+            row.otherBridges = bridges.filter((b) => !dshProfiles().includes(b.profile));
+        }
         if (id === 'codex' && hooks.count) row.untrusted = codexUntrusted(hooks.found);
         return row;
     });

@@ -13,24 +13,43 @@ const claudeHome = () => process.env.CLAUDE_CONFIG_DIR || path.join(home(), '.cl
 const codexHome = () => process.env.CODEX_HOME || path.join(home(), '.codex');
 const dshHome = () => process.env.DSH_HOME || path.join(home(), '.dsh');
 
-// dsh 的 hooks 由 cordis 插件桥执行；找到桥的挂载配置，并以它读取的 configPath 为准
-export function dshBridge() {
-    for (const name of ['cordis.patch.yml', 'cordis.yml']) {
-        const file = path.join(dshHome(), name);
+// dsh 每个 profile（desktop、tui、web）各自加载插件；hooks 由 cordis 插件桥执行。
+// 返回每个 patch 文件里挂载的桥，以及它读取的 configPath（相对路径按会话目录解析，属于项目级，记为 null）
+export function dshBridges() {
+    const candidates = [{ profile: '（根目录）', file: path.join(dshHome(), 'cordis.patch.yml') }];
+    try {
+        for (const p of fs.readdirSync(path.join(dshHome(), 'profiles'))) {
+            candidates.push({ profile: p, file: path.join(dshHome(), 'profiles', p, 'cordis.patch.yml') });
+        }
+    } catch {
+        // 没有 profiles 目录
+    }
+    const bridges = [];
+    for (const c of candidates) {
         let text;
         try {
-            text = fs.readFileSync(file, 'utf8');
+            text = fs.readFileSync(c.file, 'utf8');
         } catch {
             continue;
         }
-        const m = text.match(/dsh-hooks-(claude-code|codex)[\s\S]*?configPath:\s*["']?([^"'\n]+)["']?/);
-        if (!m) continue;
-        const configPath = expand(m[2].trim());
-        // 相对路径按会话工作目录解析，是项目级配置，全局安装仍写默认位置
-        return { file, plugin: `@deepseek-ai/dsh-hooks-${m[1]}`, configPath: path.isAbsolute(configPath) ? configPath : null };
+        for (const m of text.matchAll(/dsh-hooks-(claude-code|codex)[\s\S]*?configPath:\s*["']?([^"'\n]+)["']?/g)) {
+            const configPath = expand(m[2].trim());
+            bridges.push({ ...c, plugin: `@deepseek-ai/dsh-hooks-${m[1]}`, configPath: path.isAbsolute(configPath) ? configPath : null });
+        }
     }
-    return null;
+    return bridges;
 }
+
+export const dshProfiles = () => {
+    try {
+        return fs.readdirSync(path.join(dshHome(), 'profiles')).filter((p) => fs.existsSync(path.join(dshHome(), 'profiles', p, 'package.json')));
+    } catch {
+        return [];
+    }
+};
+
+// 只有 claude-code 方言的桥能识别 agent-tidy 写入的 Claude 格式 hooks
+export const dshHooksFiles = () => [...new Set(dshBridges().filter((b) => b.plugin.endsWith('claude-code') && b.configPath).map((b) => b.configPath))];
 
 export const AGENTS = {
     claude: {
@@ -57,7 +76,9 @@ export const AGENTS = {
         home: dshHome,
         rulesFile: () => path.join(dshHome(), 'AGENTS.md'),
         skillsDir: () => path.join(agentsHome(), 'skills'),
-        hooksFile: () => dshBridge()?.configPath || path.join(dshHome(), 'hooks.json'),
+        hooksFiles: dshHooksFiles,
+        // 卸载时额外检查默认位置，清理旧版本写入的条目
+        cleanupHooksFiles: () => [...new Set([...dshHooksFiles(), path.join(dshHome(), 'hooks.json')])],
     },
 };
 

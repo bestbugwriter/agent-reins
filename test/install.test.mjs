@@ -117,10 +117,43 @@ test('dsh：没有挂载插件桥时跳过 hooks，规则和 skills 照常安装
     const sb = sandbox();
     fs.mkdirSync(sb.p('.dsh'));
     const out = sb.run('install', '-a', 'dsh', '--skip', 'gitignore');
-    assert.match(out, /未挂载 hooks 插件桥/);
+    assert.match(out, /没有任何 profile 挂载 hooks 插件桥/);
     assert.ok(!fs.existsSync(sb.p('.dsh', 'hooks.json')));
     assert.match(sb.read('.dsh/AGENTS.md'), /agent-tidy:start/);
-    assert.match(sb.run('status'), /hooks 插件桥：未挂载/);
+    assert.match(sb.run('status'), /DeepSeek Harness\s+规则 ✓\s+skills 5\/5\s+hooks 0/);
+});
+
+test('dsh：按 profile 检测桥——根目录挂了桥但桌面版 profile 没挂时，如实提示', () => {
+    const sb = sandbox();
+    dshBridge(sb); // 根目录 cordis.patch.yml 挂了桥（本机实际情况）
+    sb.write('.dsh/profiles/desktop/package.json', { name: 'dsh-profile-desktop' });
+    sb.write('.dsh/profiles/desktop/cordis.patch.yml', '- id: llm-pi-ai\n  config: {}\n');
+    const out = sb.run('install', '-a', 'dsh', '--skip', 'gitignore');
+    assert.match(out, /desktop profile 没有挂载 hooks 插件桥/);
+    const st = sb.run('status');
+    assert.match(st, /profile desktop\s+未挂载 hooks 插件桥，hooks 不会执行/);
+    assert.match(st, /（根目录）/);
+
+    // 桌面版 profile 挂上桥、并指向独立文件后，hooks 写到那个文件
+    sb.write('.dsh/profiles/desktop/cordis.patch.yml',
+        `- insert:\n    - id: agent-tidy-hooks\n      name: "@deepseek-ai/dsh-hooks-claude-code"\n      config:\n        configPath: "${sb.p('.dsh', 'agent-tidy-hooks.json')}"\n`);
+    sb.run('install', '-a', 'dsh', '--skip', 'gitignore');
+    assert.equal(ours(sb.json('.dsh/agent-tidy-hooks.json').hooks, 'Stop').length, 1);
+    assert.match(sb.run('status'), /profile desktop\s+@deepseek-ai\/dsh-hooks-claude-code → .*agent-tidy-hooks\.json/);
+
+    // 卸载时两个文件都清理干净
+    sb.run('uninstall', '-a', 'dsh');
+    assert.equal(ours(sb.json('.dsh/agent-tidy-hooks.json').hooks || {}, 'Stop').length, 0);
+    assert.equal(ours(sb.json('.dsh/hooks.json').hooks || {}, 'Stop').length, 0);
+});
+
+test('dsh：卸载时清理旧版本写入默认 hooks.json 的条目', () => {
+    const sb = sandbox();
+    const legacy = { hooks: { Stop: [{ hooks: [{ type: 'command', command: '"/x/.agents/agent-tidy/hooks/run-hook.sh" guard-diff --agent dsh' }] }] } };
+    sb.write('.dsh/hooks.json', legacy);
+    sb.write('.dsh/AGENTS.md', '');
+    sb.run('uninstall', '-a', 'dsh');
+    assert.deepEqual(sb.json('.dsh/hooks.json'), {});
 });
 
 test('预检：任一目标配置损坏时不写入任何文件', () => {

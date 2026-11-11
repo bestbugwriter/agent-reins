@@ -57,9 +57,12 @@ function printStatus() {
         console.log(`  ${mark} ${r.label.padEnd(17)} 规则 ${r.rules ? '✓' : '✗'}   skills ${r.skills}/${r.totalSkills}   hooks ${hooks}`);
         if (r.hooksError) console.log(`      ${r.hooksError}`);
         if (r.id === 'dsh' && r.installed) {
-            console.log(r.bridge
-                ? `      hooks 插件桥：${r.bridge.plugin}（${r.bridge.file}）。是否真正执行请新开 dsh 会话确认`
-                : '      hooks 插件桥：未挂载，dsh 的 hooks 不会执行');
+            for (const p of r.profiles) {
+                const where = p.bridge ? `${p.bridge.plugin} → ${p.bridge.configPath || '项目级相对路径（全局 hooks 不适用）'}` : '未挂载 hooks 插件桥，hooks 不会执行';
+                console.log(`      profile ${p.profile.padEnd(8)} ${where}`);
+            }
+            for (const b of r.otherBridges) console.log(`      ${b.profile} ${b.file}：${b.plugin} → ${b.configPath || '相对路径'}`);
+            if (r.hooks) console.log('      桥已挂载不等于在运行：新开 dsh 会话，确认上下文里出现了本机环境信息');
         }
         if (r.untrusted) console.log(`      ⚠ 有 ${r.untrusted} 个 hook 尚未在 Codex 中审批，审批前不会执行`);
     }

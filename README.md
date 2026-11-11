@@ -16,7 +16,7 @@ npx agent-tidy uninstall -a codex
 |---|---|---|---|
 | 规则 `rules/AGENTS.md` | `~/.claude/CLAUDE.md` 托管区块 | `~/.codex/AGENTS.md` 托管区块 | `~/.dsh/AGENTS.md` 托管区块 |
 | Skills `skills/*` | 软链到 `~/.claude/skills/` | 软链到 `~/.agents/skills/` | 软链到 `~/.agents/skills/`（与 Codex 共用） |
-| Hooks `hooks/*` | `~/.claude/settings.json` | `~/.codex/hooks.json` | 插件桥读取的文件（默认 `~/.dsh/hooks.json`） |
+| Hooks `hooks/*` | `~/.claude/settings.json` | `~/.codex/hooks.json` | 各 profile 插件桥读取的文件 |
 | 全局 gitignore | `.scratch/`、`.agent-handoff.md`、`CLAUDE.local.md`、`AGENTS.local.md`，写入 `core.excludesFile` | 同左 | 同左 |
 
 文件先复制到 `~/.agents/agent-tidy/`，各 agent 目录里只放托管区块、软链和 hook 条目。安装器的行为：
@@ -31,7 +31,9 @@ npx agent-tidy uninstall -a codex
 ## 各 agent 安装后要做的事
 
 - **Codex**：新增或修改的 hook 默认不执行。打开 Codex，按提示审批 agent-tidy 的 3 个 hook。`agent-tidy status` 会提示还有几个没审批。
-- **DeepSeek Harness**：hooks 由官方插件桥 `@deepseek-ai/dsh-hooks-claude-code` 执行，需要在 `~/.dsh/cordis.patch.yml` 中挂载它。没挂载时安装器会跳过 dsh 的 hooks。挂载了也不保证它真的在运行（例如插件版本和 dsh 版本不匹配），请新开一个 dsh 会话，确认上下文里出现了本机环境信息。
+- **DeepSeek Harness**：dsh 的每个 profile（desktop、tui、web）各自加载插件。hooks 由官方插件桥 `@deepseek-ai/dsh-hooks-claude-code` 执行，安装器只会把 hooks 写进**已挂载桥的 profile** 所读取的文件；没有挂载桥时跳过，`status` 会逐个 profile 显示情况。
+  - 桌面版的插件只能在 App 里安装（`dsh plugin --profile desktop` 会提示 profile 由 Electron 应用管理）。在插件管理里安装与 App 同版本的 `@deepseek-ai/dsh-hooks-claude-code`，把 `configPath` 设为一个独立文件（例如 `~/.dsh/agent-tidy-hooks.json`），不要和其他工具共用 `~/.dsh/hooks.json`，否则会一起激活其他工具的 hooks。然后重新运行 `agent-tidy install -a dsh`，并重启 App（桥只在启动时读取配置）。
+  - 桥已挂载不等于在运行：请新开一个 dsh 会话，确认上下文里出现了本机环境信息。
 
 ## Hooks
 
