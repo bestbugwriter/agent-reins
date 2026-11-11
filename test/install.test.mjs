@@ -49,7 +49,9 @@ test('安装三个 agent：保留原有内容、幂等、可完整卸载', () =>
     dshBridge(sb);
 
     sb.run('install', '-a', 'claude,codex,dsh');
-    sb.run('install', '-a', 'claude,codex,dsh');
+    const again = sb.run('install', '-a', 'claude,codex,dsh');
+    assert.doesNotMatch(again.replace(/.*state\.json.*\n/g, ''), /更新|创建/, '第二次安装不应改动任何文件');
+    assert.equal(sb.read('.claude/CLAUDE.md.agent-tidy.bak'), '# 我的规则\n- 中文交流\n', '备份必须保留安装前的原始内容');
 
     const claudeMd = sb.read('.claude/CLAUDE.md');
     assert.match(claudeMd, /^# 我的规则/);

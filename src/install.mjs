@@ -20,7 +20,6 @@ class Fs {
     constructor(dryRun, log) {
         this.dryRun = dryRun;
         this.log = log;
-        this.backedUp = new Set();
     }
 
     write(file, content) {
@@ -28,10 +27,9 @@ class Fs {
         if (old === content) return;
         this.log(`${old === null ? '创建' : '更新'} ${file}`);
         if (this.dryRun) return;
-        if (old !== null && !this.backedUp.has(file)) {
-            fs.copyFileSync(file, `${file}.agent-tidy.bak`);
-            this.backedUp.add(file);
-        }
+        // 只在第一次修改时备份，保留安装 agent-tidy 之前的原始内容
+        const bak = `${file}.agent-tidy.bak`;
+        if (old !== null && !fs.existsSync(bak)) fs.copyFileSync(file, bak);
         fs.mkdirSync(path.dirname(file), { recursive: true });
         fs.writeFileSync(file, content);
     }
@@ -112,7 +110,7 @@ const join = (...parts) => {
 export function upsertBlock(text, start, end, body) {
     const block = `${start}\n${body.trim()}\n${end}`;
     const split = splitBlock(text, start, end);
-    return split ? join(split[0], block, split[1]) : join(text, block);
+    return split ? join(split[0], block, split[1]) : join(text.replace(/\s*$/, ''), block);
 }
 
 export function removeBlock(text, start, end) {
