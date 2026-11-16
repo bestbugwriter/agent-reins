@@ -79,6 +79,14 @@ test('改了逻辑但没改测试时提醒（仓库已有测试）', () => {
     assert.deepEqual(review([...changes, change('src/test/java/SvcTest.java', ' M', ['assert x'])], { repoHasTests: true }), []);
 });
 
+test('本会话没跑过测试时提醒；跑过或未提供运行记录时不报', () => {
+    const code = ['if (a) {', '  return b;', '}', 'x = 1;', 'y = 2;'];
+    const changes = [change('src/main/java/Svc.java', ' M', code), change('src/test/java/SvcTest.java', ' M', ['assert x'])];
+    assert.match(review(changes, { repoHasTests: true, testsRun: false }).join(), /没有检测到任何测试运行记录/);
+    assert.deepEqual(review(changes, { repoHasTests: true, testsRun: true }), []);
+    assert.deepEqual(review(changes, { repoHasTests: true }), []);
+});
+
 test('删除或改名的标识符仍被其他文件引用', () => {
     const changes = [change('src/Svc.java', ' M', ['void computeTotalAmount() {}'], ['void computeTotal() {}'])];
     let asked;

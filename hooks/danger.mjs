@@ -1,4 +1,4 @@
-// 危险命令识别：按引号切分语句和参数，递归展开 bash -c / eval / $() / 反引号
+// 危险命令识别：按引号切分语句和参数，递归展开 bash -c / eval / $() / 反引号，识别管道接裸 shell
 // 只是兜底的安全网，不是沙箱：python -c、脚本文件等间接执行无法穷举
 
 const SAFE_RM_TARGET = /^(\.\/)?(node_modules|dist|build|target|out|coverage|\.scratch|\.cache|\.gradle|__pycache__|\.pytest_cache|\.next|\.turbo)(\/.*)?$|^\/(private\/)?tmp\//;
@@ -6,11 +6,12 @@ const SHELLS = new Set(['bash', 'sh', 'zsh', 'dash', 'ksh']);
 const PREFIXES = new Set(['sudo', 'command', 'exec', 'nohup', 'time', 'nice', 'xargs']);
 const MAX_DEPTH = 4;
 
-// 在引号外按换行、;、&&、||、| 切分
-export function splitStatements(cmd) {
+// 在引号外按换行、;、&&、||、| 切分；piped 标记紧跟在管道后的语句
+function splitWithPipe(cmd) {
     const out = [];
     let cur = '';
     let quote = null;
+    let piped = false;
     for (let i = 0; i < cmd.length; i++) {
         const ch = cmd[i];
         if (quote) {
@@ -26,15 +27,21 @@ export function splitStatements(cmd) {
         } else if (ch === '\\') {
             cur += ch + (cmd[++i] ?? '');
         } else if (ch === '\n' || ch === ';' || ch === '|' || (ch === '&' && cmd[i + 1] === '&')) {
+            const isPipe = ch === '|' && cmd[i + 1] !== '|';
             if (ch === '&' || (ch === '|' && cmd[i + 1] === '|')) i++;
-            out.push(cur);
+            out.push({ stmt: cur, piped });
             cur = '';
+            piped = isPipe;
         } else {
             cur += ch;
         }
     }
-    out.push(cur);
-    return out.map((s) => s.trim()).filter(Boolean);
+    out.push({ stmt: cur, piped });
+    return out.map((s) => ({ stmt: s.stmt.trim(), piped: s.piped })).filter((s) => s.stmt);
+}
+
+export function splitStatements(cmd) {
+    return splitWithPipe(cmd).map((s) => s.stmt);
 }
 
 // 按空白切分参数，去掉引号
@@ -168,14 +175,27 @@ function checkTokens(tokens, depth) {
     return null;
 }
 
+// 管道后的裸 shell（无脚本文件参数）：经典 curl … | sh；-c 交给 checkTokens 递归
+function isBareShell(tokens) {
+    let i = 0;
+    while (i < tokens.length && (/^[A-Za-z_][A-Za-z0-9_]*=/.test(tokens[i]) || PREFIXES.has(tokens[i]))) i++;
+    const name = (tokens[i] || '').split('/').pop();
+    if (!SHELLS.has(name)) return false;
+    const args = tokens.slice(i + 1);
+    if (args.some((a) => /^-[a-zA-Z]*c[a-zA-Z]*$/.test(a))) return false;
+    return !args.some((a) => !a.startsWith('-'));
+}
+
 function scan(cmd, depth) {
     if (depth > MAX_DEPTH) return null;
-    for (const stmt of splitStatements(cmd)) {
+    for (const { stmt, piped } of splitWithPipe(cmd)) {
         for (const sub of substitutions(stmt)) {
             const hit = scan(sub, depth + 1);
             if (hit) return hit;
         }
-        const hit = checkTokens(tokenize(stmt), depth);
+        const tokens = tokenize(stmt);
+        if (piped && isBareShell(tokens)) return '管道直接执行 shell（如 curl … | sh）';
+        const hit = checkTokens(tokens, depth);
         if (hit) return hit;
     }
     return null;
@@ -195,4 +215,59 @@ export function findDanger(cmd) {
     if (Array.isArray(cmd)) return checkTokens(cmd.map(String), 0) || checkSql(cmd.join(' ')); // argv 形式，拼接会丢失引号
     if (!cmd || typeof cmd !== 'string') return null;
     return scan(cmd, 0) || checkSql(cmd);
+}
+
+// 引号外的重定向目标（> / >>，排除 >& 描述符复制）；引号内的 ">> x" 不算
+export function redirectTargets(cmd) {
+    const targets = [];
+    let quote = null;
+    for (let i = 0; i < cmd.length; i++) {
+        const ch = cmd[i];
+        if (quote) {
+            if (ch === '\\' && quote === '"') i++;
+            else if (ch === quote) quote = null;
+            continue;
+        }
+        if (ch === '"' || ch === "'") { quote = ch; continue; }
+        if (ch === '\\') { i++; continue; }
+        if (ch !== '>') continue;
+        let j = i + 1;
+        if (cmd[j] === '>') j++;
+        if (cmd[j] === '&') continue;
+        while (j < cmd.length && /\s/.test(cmd[j])) j++;
+        let t = '';
+        let q = null;
+        while (j < cmd.length) {
+            const c = cmd[j];
+            if (q) {
+                if (c === '\\' && q === '"') { t += cmd[j + 1] ?? ''; j += 2; continue; }
+                if (c === q) { q = null; j++; continue; }
+                t += c; j++; continue;
+            }
+            if (c === '"' || c === "'") { q = c; j++; continue; }
+            if (/[\s|;&<>]/.test(c)) break;
+            t += c; j++;
+        }
+        if (t) targets.push(t);
+        i = j - 1;
+    }
+    return targets;
+}
+
+// shell 可能写文件的操作数：重定向目标 + tee 的文件参数 + sed -i 的最后一个操作数
+export function shellWriteTargets(cmd) {
+    const targets = redirectTargets(cmd);
+    for (const stmt of splitStatements(cmd)) {
+        const toks = tokenize(stmt);
+        let i = 0;
+        while (i < toks.length && (/^[A-Za-z_][A-Za-z0-9_]*=/.test(toks[i]) || PREFIXES.has(toks[i]))) i++;
+        const name = (toks[i] || '').split('/').pop();
+        const args = toks.slice(i + 1);
+        if (name === 'tee') targets.push(...args.filter((t) => !t.startsWith('-')));
+        if (name === 'sed' && args.some((t) => /^-i/.test(t) || t === '--in-place')) {
+            const last = args[args.length - 1];
+            if (last && !last.startsWith('-')) targets.push(last);
+        }
+    }
+    return targets;
 }

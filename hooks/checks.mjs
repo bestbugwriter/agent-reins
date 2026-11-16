@@ -121,6 +121,9 @@ export function reviewChanges(ctx) {
         findings.push(`改了 ${logicLines} 行逻辑代码（${list(logic.map((c) => c.path))}），但没有改动任何测试。`
             + `请确认受影响的用例是否需要新增、修改或删除；确实不需要时向用户说明理由。`);
     }
+    if (ctx.repoHasTests && ctx.testsRun === false && logicLines >= config.testNudgeLines) {
+        findings.push(`改了 ${logicLines} 行逻辑代码，但本会话没有检测到任何测试运行记录。说"完成"前请实际运行测试，并附上命令与结果。`);
+    }
 
     // ---------- 一致性：删除/改名的标识符仍被引用 ----------
     const changedPaths = new Set(changes.map((c) => c.path));

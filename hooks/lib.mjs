@@ -68,6 +68,15 @@ export function saveState(input, root, state) {
     fs.writeFileSync(stateFile(input, root), JSON.stringify(state));
 }
 
+// 读-合并-写：track-test 与 guard-diff 各自更新字段，不覆盖对方刚写入的内容
+export function updateState(input, root, mutate) {
+    const state = loadState(input, root);
+    if (!state) return null;
+    mutate(state);
+    saveState(input, root, state);
+    return state;
+}
+
 export function git(root, args) {
     return execFileSync('git', ['-C', root, '-c', 'core.quotePath=false', ...args], {
         encoding: 'utf8',
@@ -79,6 +88,16 @@ export function git(root, args) {
 export function gitRoot(cwd) {
     try {
         return git(cwd || process.cwd(), ['rev-parse', '--show-toplevel']).trim();
+    } catch {
+        return null;
+    }
+}
+
+export const EMPTY_TREE = '4b825dc642cb6eb9a060e54bf8d69288fbee4904';
+
+export function gitHead(root) {
+    try {
+        return git(root, ['rev-parse', '--verify', 'HEAD']).trim();
     } catch {
         return null;
     }

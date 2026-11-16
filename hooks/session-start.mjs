@@ -2,7 +2,7 @@
 // SessionStart：实时提供本机环境（不落盘），记录会话开始时的工作区基线，压缩后重申要点
 import fs from 'node:fs';
 import os from 'node:os';
-import { readInput, emit, runHook, gitRoot, loadState, saveState, snapshot, availableMemory } from './lib.mjs';
+import { readInput, agentArg, emit, runHook, gitRoot, loadState, saveState, snapshot, gitHead, availableMemory } from './lib.mjs';
 
 const PLATFORM = { darwin: 'macOS', linux: 'Linux', win32: 'Windows' };
 
@@ -33,13 +33,15 @@ await runHook(async () => {
             + `CPU ${os.cpus().length} 核，内存 ${gb(os.totalmem())} GB`
             + `${avail === null ? '' : `（当前可用约 ${gb(avail)} GB）`}${disk}。`,
     ];
-    if (input.source === 'compact') lines.push(COMPACT_REMINDER);
+    if (input.source === 'compact' || input.hook_event_name === 'PostCompact') lines.push(COMPACT_REMINDER);
 
     // 只在会话第一次启动时记录基线，resume/compact 沿用原基线
     const root = gitRoot(cwd);
     if (root && !loadState(input, root)) {
-        saveState(input, root, { root, baseline: snapshot(root), reminded: [] });
+        saveState(input, root, { root, baseline: snapshot(root), baselineCommit: gitHead(root), reminded: [] });
     }
 
-    emit({ hookSpecificOutput: { hookEventName: 'SessionStart', additionalContext: lines.join('\n') } });
+    // Kimi 的 SessionStart/PostCompact 是观察型事件，纯文本 stdout 附加到上下文
+    if (agentArg() === 'kimi') process.stdout.write(`${lines.join('\n')}\n`);
+    else emit({ hookSpecificOutput: { hookEventName: 'SessionStart', additionalContext: lines.join('\n') } });
 });

