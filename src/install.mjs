@@ -12,6 +12,8 @@ const MD_END = '<!-- agent-reins:end -->';
 const IGNORE_START = '# >>> agent-reins >>>';
 const IGNORE_END = '# <<< agent-reins <<<';
 const HOOK_MARK = /agent-reins[\/\\]hooks[\/\\]/;
+const TOML_START = '# >>> agent-reins >>>';
+const TOML_END = '# <<< agent-reins <<<';
 const KIT_PARTS = ['rules', 'skills', 'hooks', 'templates'];
 export const PARTS = ['rules', 'skills', 'hooks', 'gitignore'];
 const IS_WIN = process.platform === 'win32';
@@ -132,15 +134,42 @@ function hookCommand(id, script) {
 }
 
 function hookEntries(id) {
+    const a = AGENTS[id];
     const group = (script, timeout, matcher) => ({
         ...(matcher ? { matcher } : {}),
         hooks: [{ type: 'command', command: hookCommand(id, script), timeout }],
     });
-    return {
+    const entries = {
         SessionStart: [group('session-start', 10)],
-        PreToolUse: [group('guard-tool', 10, AGENTS[id].toolMatcher)],
+        PreToolUse: [group('guard-tool', 10, a.toolMatcher)],
         Stop: [group('guard-diff', 30)],
+        PostToolUse: [group('track-test', 10, a.postToolMatcher || 'Bash')],
     };
+    // Kimi 的压缩是独立事件，不经过 SessionStart source=compact
+    if (id === 'kimi') entries.PostCompact = [group('session-start', 10)];
+    return entries;
+}
+
+// TOML basic string：转义反斜杠和双引号（Windows 路径、含单引号的路径都安全）
+const tomlString = (s) => `"${s.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`;
+
+function tomlHookBlock(id) {
+    const lines = [];
+    for (const [ev, groups] of Object.entries(hookEntries(id))) {
+        for (const g of groups) {
+            lines.push('[[hooks]]', `event = ${tomlString(ev)}`);
+            if (g.matcher) lines.push(`matcher = ${tomlString(g.matcher)}`);
+            lines.push(`command = ${tomlString(g.hooks[0].command)}`, `timeout = ${g.hooks[0].timeout}`);
+        }
+    }
+    return lines.join('\n');
+}
+
+// 返回 TOML 托管区块的内容；无区块返回 null，标记不完整时抛出
+function tomlBlockBody(text) {
+    if (!splitBlock(text, TOML_START, TOML_END)) return null;
+    const i = text.indexOf(TOML_START) + TOML_START.length;
+    return text.slice(i, text.indexOf(TOML_END, i));
 }
 
 const isOurHook = (h) => HOOK_MARK.test(String(h.command || ''));
@@ -157,8 +186,12 @@ function stripOurHooks(hooks) {
 }
 
 // 返回 { count, error }；配置损坏时不抛出，交给调用方降级显示
-function ourHooks(file) {
+function ourHooks(file, format) {
     try {
+        if (format === 'toml') {
+            const body = tomlBlockBody(readText(file));
+            return { count: body ? (body.match(/^\[\[hooks\]\]\s*$/gm) || []).length : 0, found: [] };
+        }
         const hooks = hooksMap(readJson(file));
         const found = [];
         for (const [ev, groups] of Object.entries(hooks)) {
@@ -211,7 +244,7 @@ export function readState() {
 // 磁盘上能归属到该 agent 的残留：规则区块或 hook 条目（共享 skills 目录无法归属）
 function hasLeftovers(id) {
     const a = AGENTS[id];
-    return readText(a.rulesFile()).includes(MD_START) || cleanupFiles(a).some((f) => ourHooks(f).count > 0);
+    return readText(a.rulesFile()).includes(MD_START) || cleanupFiles(a).some((f) => ourHooks(f, a.hooksFormat).count > 0);
 }
 
 function preflight(agents, parts) {
@@ -226,7 +259,10 @@ function preflight(agents, parts) {
     for (const id of agents) {
         const a = AGENTS[id];
         if (parts.includes('rules')) tryRead(() => splitBlock(readText(a.rulesFile()), MD_START, MD_END));
-        if (parts.includes('hooks')) for (const f of hooksFiles(a)) tryRead(() => readJson(f));
+        if (parts.includes('hooks')) {
+            if (a.hooksFormat === 'toml') tryRead(() => splitBlock(readText(a.hooksFile()), TOML_START, TOML_END));
+            else for (const f of hooksFiles(a)) tryRead(() => readJson(f));
+        }
     }
     if (parts.includes('gitignore')) tryRead(() => splitBlock(readText(gitIgnoreFile()), IGNORE_START, IGNORE_END));
     if (errors.length) throw new Error(`预检失败，未写入任何文件：\n  - ${errors.join('\n  - ')}`);
@@ -262,14 +298,18 @@ export function install({ agents, parts = PARTS, dryRun = false, log = console.l
         }
         if (parts.includes('hooks')) {
             const files = hooksFiles(a);
-            for (const file of files) {
-                const data = readJson(file);
-                const hooks = hooksMap(data);
-                stripOurHooks(hooks);
-                for (const [ev, groups] of Object.entries(hookEntries(id))) (hooks[ev] ??= []).push(...groups);
-                fsx.write(file, `${JSON.stringify(data, null, 2)}\n`);
+            if (a.hooksFormat === 'toml') {
+                fsx.write(a.hooksFile(), upsertBlock(readText(a.hooksFile()), TOML_START, TOML_END, tomlHookBlock(id)));
+            } else {
+                for (const file of files) {
+                    const data = readJson(file);
+                    const hooks = hooksMap(data);
+                    stripOurHooks(hooks);
+                    for (const [ev, groups] of Object.entries(hookEntries(id))) (hooks[ev] ??= []).push(...groups);
+                    fsx.write(file, `${JSON.stringify(data, null, 2)}\n`);
+                }
             }
-            if (id === 'codex') notes.push('Codex 会跳过未审批的新 hook：请打开 Codex，在 hooks 审批提示中信任 agent-reins 的 3 个 hook');
+            if (id === 'codex') notes.push('Codex 会跳过未审批的新 hook：请打开 Codex，在 hooks 审批提示中信任 agent-reins 的 4 个 hook');
             if (id === 'dsh') {
                 const bridged = new Set(dshBridges().map((b) => b.profile));
                 const missing = dshProfiles().filter((p) => !bridged.has(p));
@@ -316,6 +356,15 @@ export function uninstall({ agents, dryRun = false, log = console.log }) {
             }
         }
         for (const file of cleanupFiles(a)) {
+            if (a.hooksFormat === 'toml') {
+                try {
+                    const text = readText(file);
+                    if (splitBlock(text, TOML_START, TOML_END)) fsx.write(file, removeBlock(text, TOML_START, TOML_END));
+                } catch (e) {
+                    log(`跳过 ${file}：${e.message}，请手动删除其中的 agent-reins 托管区块`);
+                }
+                continue;
+            }
             const { count, error } = ourHooks(file);
             if (error && fs.existsSync(file)) log(`跳过 ${file}：${error}，请手动删除其中包含 agent-reins/hooks 的条目`);
             else if (count) {
@@ -346,7 +395,7 @@ export function status() {
     const kitOk = fs.existsSync(path.join(kitHome(), 'hooks', 'guard-diff.mjs'));
     const names = skillNames();
     const rows = Object.entries(AGENTS).map(([id, a]) => {
-        const results = hooksFiles(a).map((f) => ({ file: f, ...ourHooks(f) }));
+        const results = hooksFiles(a).map((f) => ({ file: f, ...ourHooks(f, a.hooksFormat) }));
         const hooks = {
             count: results.reduce((n, r) => n + r.count, 0),
             found: results.flatMap((r) => r.found),

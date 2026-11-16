@@ -1,4 +1,4 @@
-// 三个 agent 的全局目录约定
+// 五个 agent 的全局目录约定
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -12,6 +12,8 @@ export const overlayFile = () => path.join(agentsHome(), 'agent-reins.local.md')
 const claudeHome = () => process.env.CLAUDE_CONFIG_DIR || path.join(home(), '.claude');
 const codexHome = () => process.env.CODEX_HOME || path.join(home(), '.codex');
 const dshHome = () => process.env.DSH_HOME || path.join(home(), '.dsh');
+const qoderHome = () => path.join(home(), '.qoder');
+const kimiHome = () => process.env.KIMI_CODE_HOME || path.join(home(), '.kimi-code');
 
 // dsh 每个 profile（desktop、tui、web）各自加载插件；hooks 由 cordis 插件桥执行。
 // 返回每个 patch 文件里挂载的桥，以及它读取的 configPath（相对路径按会话目录解析，属于项目级，记为 null）
@@ -69,6 +71,7 @@ export const AGENTS = {
         skillsDir: () => path.join(agentsHome(), 'skills'),
         hooksFile: () => path.join(codexHome(), 'hooks.json'),
         configToml: () => path.join(codexHome(), 'config.toml'),
+        postToolMatcher: 'Bash|shell',
     },
     dsh: {
         label: 'DeepSeek Harness',
@@ -79,6 +82,25 @@ export const AGENTS = {
         hooksFiles: dshHooksFiles,
         // 卸载时额外检查默认位置，清理旧版本写入的条目
         cleanupHooksFiles: () => [...new Set([...dshHooksFiles(), path.join(dshHome(), 'hooks.json')])],
+    },
+    qoder: {
+        label: 'Qoder',
+        bin: 'qodercli',
+        home: qoderHome,
+        rulesFile: () => path.join(qoderHome(), 'AGENTS.md'),
+        skillsDir: () => path.join(agentsHome(), 'skills'),
+        hooksFile: () => path.join(qoderHome(), 'settings.json'),
+        toolMatcher: 'Bash|Edit|Write|MultiEdit',
+    },
+    kimi: {
+        label: 'Kimi Code',
+        bin: 'kimi',
+        home: kimiHome,
+        rulesFile: () => path.join(kimiHome(), 'AGENTS.md'),
+        skillsDir: () => path.join(agentsHome(), 'skills'),
+        hooksFile: () => path.join(kimiHome(), 'config.toml'),
+        hooksFormat: 'toml',
+        toolMatcher: 'Bash|Edit|Write',
     },
 };
 
