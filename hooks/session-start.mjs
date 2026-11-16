@@ -6,7 +6,7 @@ import { readInput, emit, runHook, gitRoot, loadState, saveState, snapshot, avai
 
 const PLATFORM = { darwin: 'macOS', linux: 'Linux', win32: 'Windows' };
 
-const COMPACT_REMINDER = `上下文刚被压缩，重申 agent-tidy 要点：
+const COMPACT_REMINDER = `上下文刚被压缩，重申 agent-reins 要点：
 - 改动范围与需求一致，不加需求外的抽象、兜底和测试。
 - 改了行为、接口或配置，同一次改动里同步测试、文档和注释（change-impact）。
 - 默认不新增文档；过程产物写 .scratch/，不入库。

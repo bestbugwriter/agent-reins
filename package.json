@@ -1,10 +1,10 @@
 {
-  "name": "agent-tidy",
-  "version": "0.1.0",
-  "description": "让 coding agent 少写文档、不越界、不谎报完成：一套可安装到 Claude Code / Codex / DeepSeek Harness 的全局规则、Skills 与 Hooks",
+  "name": "agent-reins",
+  "version": "0.2.0",
+  "description": "让 coding agent 少写文档、不越界、改动保持一致、不谎报完成：一套可安装到 Claude Code / Codex / DeepSeek Harness / Qoder / Kimi Code 的全局规则、Skills 与 Hooks",
   "type": "module",
   "bin": {
-    "agent-tidy": "bin/agent-tidy.mjs"
+    "agent-reins": "bin/agent-reins.mjs"
   },
   "files": [
     "bin",
@@ -24,9 +24,15 @@
     "claude-code",
     "codex",
     "deepseek-harness",
+    "qoder",
+    "kimi-code",
     "agents-md",
     "skills",
     "hooks"
   ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/bestbugwriter/agent-reins.git"
+  },
   "license": "MIT"
 }

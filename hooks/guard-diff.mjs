@@ -65,7 +65,7 @@ function grepLines(root, args) {
 }
 
 function loadConfig(root) {
-    const file = path.join(root, '.agent-tidy.json');
+    const file = path.join(root, '.agent-reins.json');
     let raw;
     if (fs.existsSync(file)) {
         try {
@@ -112,7 +112,7 @@ await runHook(async () => {
         },
         docRefsTo: (targets) => grepLines(root, ['-F', ...targets.flatMap((t) => ['-e', t, '-e', path.basename(t)]), '--', '*.md', '*.mdx']),
     });
-    if (error) findings.push(`.agent-tidy.json 格式错误：${error}。已按默认配置检查，请修正。`);
+    if (error) findings.push(`.agent-reins.json 格式错误：${error}。已按默认配置检查，请修正。`);
     if (!findings.length) return;
 
     const key = crypto.createHash('sha1').update(findings.join('\n')).digest('hex');
@@ -122,7 +122,7 @@ await runHook(async () => {
 
     emit({
         decision: 'block',
-        reason: `[agent-tidy] 结束前请检查以下问题：\n- ${findings.join('\n- ')}\n`
+        reason: `[agent-reins] 结束前请检查以下问题：\n- ${findings.join('\n- ')}\n`
             + `请修正；如果确实是用户要求的或确认无关，向用户说明后再结束。`,
     });
 });

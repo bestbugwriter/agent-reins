@@ -7,8 +7,8 @@ import { execFileSync } from 'node:child_process';
 const home = () => os.homedir();
 const expand = (p) => p.replace(/^~(?=$|[\/\\])/, home());
 export const agentsHome = () => path.join(home(), '.agents');
-export const kitHome = () => path.join(agentsHome(), 'agent-tidy');
-export const overlayFile = () => path.join(agentsHome(), 'agent-tidy.local.md');
+export const kitHome = () => path.join(agentsHome(), 'agent-reins');
+export const overlayFile = () => path.join(agentsHome(), 'agent-reins.local.md');
 const claudeHome = () => process.env.CLAUDE_CONFIG_DIR || path.join(home(), '.claude');
 const codexHome = () => process.env.CODEX_HOME || path.join(home(), '.codex');
 const dshHome = () => process.env.DSH_HOME || path.join(home(), '.dsh');
@@ -48,7 +48,7 @@ export const dshProfiles = () => {
     }
 };
 
-// 只有 claude-code 方言的桥能识别 agent-tidy 写入的 Claude 格式 hooks
+// 只有 claude-code 方言的桥能识别 agent-reins 写入的 Claude 格式 hooks
 export const dshHooksFiles = () => [...new Set(dshBridges().filter((b) => b.plugin.endsWith('claude-code') && b.configPath).map((b) => b.configPath))];
 
 export const AGENTS = {

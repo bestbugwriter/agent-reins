@@ -44,14 +44,14 @@ export async function runHook(main) {
     try {
         await main();
     } catch (e) {
-        process.stderr.write(`[agent-tidy] hook 出错（已跳过）：${e && e.stack ? e.stack : e}\n`);
+        process.stderr.write(`[agent-reins] hook 出错（已跳过）：${e && e.stack ? e.stack : e}\n`);
     }
 }
 
 function stateFile(input, root) {
     const key = input.session_id || input.thread_id || `cwd-${root}`;
     const name = crypto.createHash('sha1').update(String(key)).digest('hex').slice(0, 16);
-    const dir = path.join(os.tmpdir(), 'agent-tidy');
+    const dir = path.join(os.tmpdir(), 'agent-reins');
     fs.mkdirSync(dir, { recursive: true });
     return path.join(dir, `${name}.json`);
 }
@@ -98,7 +98,7 @@ export function gitStatus(root) {
         entries.push(entry);
     }
     if (entries.length > MAX_ENTRIES) {
-        process.stderr.write(`[agent-tidy] 工作区有 ${entries.length} 个改动，只检查前 ${MAX_ENTRIES} 个\n`);
+        process.stderr.write(`[agent-reins] 工作区有 ${entries.length} 个改动，只检查前 ${MAX_ENTRIES} 个\n`);
     }
     return entries.slice(0, MAX_ENTRIES);
 }

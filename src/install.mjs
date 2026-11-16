@@ -7,11 +7,11 @@ import { AGENTS, kitHome, overlayFile, gitIgnoreFile, dshBridges, dshProfiles } 
 export const PKG_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 export const VERSION = JSON.parse(fs.readFileSync(path.join(PKG_ROOT, 'package.json'), 'utf8')).version;
 
-const MD_START = '<!-- agent-tidy:start（由 agent-tidy 管理，重新安装会覆盖此区块）-->';
-const MD_END = '<!-- agent-tidy:end -->';
-const IGNORE_START = '# >>> agent-tidy >>>';
-const IGNORE_END = '# <<< agent-tidy <<<';
-const HOOK_MARK = /agent-tidy[\/\\]hooks[\/\\]/;
+const MD_START = '<!-- agent-reins:start（由 agent-reins 管理，重新安装会覆盖此区块）-->';
+const MD_END = '<!-- agent-reins:end -->';
+const IGNORE_START = '# >>> agent-reins >>>';
+const IGNORE_END = '# <<< agent-reins <<<';
+const HOOK_MARK = /agent-reins[\/\\]hooks[\/\\]/;
 const KIT_PARTS = ['rules', 'skills', 'hooks', 'templates'];
 export const PARTS = ['rules', 'skills', 'hooks', 'gitignore'];
 const IS_WIN = process.platform === 'win32';
@@ -27,8 +27,8 @@ class Fs {
         if (old === content) return;
         this.log(`${old === null ? '创建' : '更新'} ${file}`);
         if (this.dryRun) return;
-        // 只在第一次修改时备份，保留安装 agent-tidy 之前的原始内容
-        const bak = `${file}.agent-tidy.bak`;
+        // 只在第一次修改时备份，保留安装 agent-reins 之前的原始内容
+        const bak = `${file}.agent-reins.bak`;
         if (old !== null && !fs.existsSync(bak)) fs.copyFileSync(file, bak);
         fs.mkdirSync(path.dirname(file), { recursive: true });
         fs.writeFileSync(file, content);
@@ -269,12 +269,12 @@ export function install({ agents, parts = PARTS, dryRun = false, log = console.l
                 for (const [ev, groups] of Object.entries(hookEntries(id))) (hooks[ev] ??= []).push(...groups);
                 fsx.write(file, `${JSON.stringify(data, null, 2)}\n`);
             }
-            if (id === 'codex') notes.push('Codex 会跳过未审批的新 hook：请打开 Codex，在 hooks 审批提示中信任 agent-tidy 的 3 个 hook');
+            if (id === 'codex') notes.push('Codex 会跳过未审批的新 hook：请打开 Codex，在 hooks 审批提示中信任 agent-reins 的 3 个 hook');
             if (id === 'dsh') {
                 const bridged = new Set(dshBridges().map((b) => b.profile));
                 const missing = dshProfiles().filter((p) => !bridged.has(p));
                 if (!files.length) notes.push('dsh 没有任何 profile 挂载 hooks 插件桥（@deepseek-ai/dsh-hooks-claude-code），已跳过 dsh 的 hooks；规则和 skills 已安装');
-                if (missing.length) notes.push(`dsh 的 ${missing.join('、')} profile 没有挂载 hooks 插件桥，这些 profile 中 hooks 不会执行；运行 agent-tidy status 查看详情`);
+                if (missing.length) notes.push(`dsh 的 ${missing.join('、')} profile 没有挂载 hooks 插件桥，这些 profile 中 hooks 不会执行；运行 agent-reins status 查看详情`);
             }
         }
         // 每完成一个 agent 就记录，中途失败时 uninstall 仍能清理已写入的部分
@@ -317,7 +317,7 @@ export function uninstall({ agents, dryRun = false, log = console.log }) {
         }
         for (const file of cleanupFiles(a)) {
             const { count, error } = ourHooks(file);
-            if (error && fs.existsSync(file)) log(`跳过 ${file}：${error}，请手动删除其中包含 agent-tidy/hooks 的条目`);
+            if (error && fs.existsSync(file)) log(`跳过 ${file}：${error}，请手动删除其中包含 agent-reins/hooks 的条目`);
             else if (count) {
                 const data = readJson(file);
                 stripOurHooks(hooksMap(data));

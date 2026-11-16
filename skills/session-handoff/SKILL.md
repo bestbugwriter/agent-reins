@@ -7,7 +7,7 @@ description: 任务需要换到新会话继续时使用（上下文快满、压�
 
 项目已有自己的恢复机制时（例如 Comet 的 `comet-state check --recover`），用项目的机制，不再另写交接文件。
 
-没有时，交接文件固定为仓库根目录的 `.agent-handoff.md`（agent-tidy 已全局 gitignore，不会入库）。
+没有时，交接文件固定为仓库根目录的 `.agent-handoff.md`（agent-reins 已全局 gitignore，不会入库）。
 
 ## 写交接（旧会话）
 1. 先把能提交的改动小步提交，commit message 写清楚做了什么。git 历史是最可靠的交接记录。

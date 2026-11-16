@@ -7,11 +7,11 @@ import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const CLI = path.join(ROOT, 'bin', 'agent-tidy.mjs');
+const CLI = path.join(ROOT, 'bin', 'agent-reins.mjs');
 const OVERRIDES = ['CLAUDE_CONFIG_DIR', 'CODEX_HOME', 'DSH_HOME', 'DSH_AGENTS_HOME', 'XDG_CONFIG_HOME'];
 
 function sandbox() {
-    const home = fs.mkdtempSync(path.join(os.tmpdir(), 'agent-tidy-home-'));
+    const home = fs.mkdtempSync(path.join(os.tmpdir(), 'agent-reins-home-'));
     const env = { ...process.env, HOME: home, USERPROFILE: home };
     // 这些变量优先于 HOME；不清掉会写到真实目录
     for (const k of OVERRIDES) delete env[k];
@@ -34,7 +34,7 @@ const runFails = (fn) => {
     assert.fail('预期命令失败');
 };
 
-const ours = (hooks, ev) => (hooks[ev] || []).flatMap((g) => g.hooks).filter((h) => h.command.includes('agent-tidy'));
+const ours = (hooks, ev) => (hooks[ev] || []).flatMap((g) => g.hooks).filter((h) => h.command.includes('agent-reins'));
 
 function dshBridge(sb, configPath = sb.p('.dsh', 'hooks.json')) {
     sb.write('.dsh/cordis.patch.yml', `- insert:\n    - id: "cmhub-hooks-claude-code"\n      name: "@deepseek-ai/dsh-hooks-claude-code"\n      config:\n        configPath: "${configPath}"\n`);
@@ -51,12 +51,12 @@ test('安装三个 agent：保留原有内容、幂等、可完整卸载', () =>
     sb.run('install', '-a', 'claude,codex,dsh');
     const again = sb.run('install', '-a', 'claude,codex,dsh');
     assert.doesNotMatch(again.replace(/.*state\.json.*\n/g, ''), /更新|创建/, '第二次安装不应改动任何文件');
-    assert.equal(sb.read('.claude/CLAUDE.md.agent-tidy.bak'), '# 我的规则\n- 中文交流\n', '备份必须保留安装前的原始内容');
+    assert.equal(sb.read('.claude/CLAUDE.md.agent-reins.bak'), '# 我的规则\n- 中文交流\n', '备份必须保留安装前的原始内容');
 
     const claudeMd = sb.read('.claude/CLAUDE.md');
     assert.match(claudeMd, /^# 我的规则/);
-    assert.equal(claudeMd.split('agent-tidy:start').length - 1, 1);
-    for (const f of ['.codex/AGENTS.md', '.dsh/AGENTS.md']) assert.equal(sb.read(f).split('agent-tidy:start').length - 1, 1);
+    assert.equal(claudeMd.split('agent-reins:start').length - 1, 1);
+    for (const f of ['.codex/AGENTS.md', '.dsh/AGENTS.md']) assert.equal(sb.read(f).split('agent-reins:start').length - 1, 1);
 
     const settings = sb.json('.claude/settings.json');
     assert.equal(settings.model, 'x');
@@ -69,12 +69,12 @@ test('安装三个 agent：保留原有内容、幂等、可完整卸载', () =>
     assert.ok(fs.lstatSync(sb.p('.agents', 'skills', 'ui-verify')).isSymbolicLink());
     assert.ok(!fs.lstatSync(sb.p('.agents', 'skills', 'doc-audit')).isSymbolicLink(), '同名 skill 不能被覆盖');
     assert.match(sb.read('.config/git/ignore'), /\.agent-handoff\.md/);
-    assert.ok(fs.existsSync(sb.p('.claude', 'settings.json.agent-tidy.bak')));
+    assert.ok(fs.existsSync(sb.p('.claude', 'settings.json.agent-reins.bak')));
     assert.match(sb.run('status'), /Claude Code\s+规则 ✓\s+skills 5\/5\s+hooks 3/);
 
     // 只卸载 codex：共享的 ~/.agents/skills 仍被 dsh 使用，必须保留
     sb.run('uninstall', '-a', 'codex');
-    assert.doesNotMatch(sb.read('.codex/AGENTS.md'), /agent-tidy/);
+    assert.doesNotMatch(sb.read('.codex/AGENTS.md'), /agent-reins/);
     assert.ok(fs.lstatSync(sb.p('.agents', 'skills', 'ui-verify')).isSymbolicLink());
 
     sb.run('uninstall');
@@ -82,8 +82,8 @@ test('安装三个 agent：保留原有内容、幂等、可完整卸载', () =>
     assert.deepEqual(sb.json('.claude/settings.json'), { model: 'x', hooks: { Stop: [{ matcher: '*', hooks: [userHook] }] } });
     assert.ok(!fs.existsSync(sb.p('.agents', 'skills', 'ui-verify')));
     assert.ok(fs.existsSync(sb.p('.agents', 'skills', 'doc-audit')));
-    assert.ok(!fs.existsSync(sb.p('.agents', 'agent-tidy')));
-    assert.doesNotMatch(sb.read('.config/git/ignore'), /agent-tidy/);
+    assert.ok(!fs.existsSync(sb.p('.agents', 'agent-reins')));
+    assert.doesNotMatch(sb.read('.config/git/ignore'), /agent-reins/);
 });
 
 test('dsh：按桥读取的文件和现有包裹格式写入，不产生混合形状', () => {
@@ -119,7 +119,7 @@ test('dsh：没有挂载插件桥时跳过 hooks，规则和 skills 照常安装
     const out = sb.run('install', '-a', 'dsh', '--skip', 'gitignore');
     assert.match(out, /没有任何 profile 挂载 hooks 插件桥/);
     assert.ok(!fs.existsSync(sb.p('.dsh', 'hooks.json')));
-    assert.match(sb.read('.dsh/AGENTS.md'), /agent-tidy:start/);
+    assert.match(sb.read('.dsh/AGENTS.md'), /agent-reins:start/);
     assert.match(sb.run('status'), /DeepSeek Harness\s+规则 ✓\s+skills 5\/5\s+hooks 0/);
 });
 
@@ -136,20 +136,20 @@ test('dsh：按 profile 检测桥——根目录挂了桥但桌面版 profile �
 
     // 桌面版 profile 挂上桥、并指向独立文件后，hooks 写到那个文件
     sb.write('.dsh/profiles/desktop/cordis.patch.yml',
-        `- insert:\n    - id: agent-tidy-hooks\n      name: "@deepseek-ai/dsh-hooks-claude-code"\n      config:\n        configPath: "${sb.p('.dsh', 'agent-tidy-hooks.json')}"\n`);
+        `- insert:\n    - id: agent-reins-hooks\n      name: "@deepseek-ai/dsh-hooks-claude-code"\n      config:\n        configPath: "${sb.p('.dsh', 'agent-reins-hooks.json')}"\n`);
     sb.run('install', '-a', 'dsh', '--skip', 'gitignore');
-    assert.equal(ours(sb.json('.dsh/agent-tidy-hooks.json').hooks, 'Stop').length, 1);
-    assert.match(sb.run('status'), /profile desktop\s+@deepseek-ai\/dsh-hooks-claude-code → .*agent-tidy-hooks\.json/);
+    assert.equal(ours(sb.json('.dsh/agent-reins-hooks.json').hooks, 'Stop').length, 1);
+    assert.match(sb.run('status'), /profile desktop\s+@deepseek-ai\/dsh-hooks-claude-code → .*agent-reins-hooks\.json/);
 
     // 卸载时两个文件都清理干净
     sb.run('uninstall', '-a', 'dsh');
-    assert.equal(ours(sb.json('.dsh/agent-tidy-hooks.json').hooks || {}, 'Stop').length, 0);
+    assert.equal(ours(sb.json('.dsh/agent-reins-hooks.json').hooks || {}, 'Stop').length, 0);
     assert.equal(ours(sb.json('.dsh/hooks.json').hooks || {}, 'Stop').length, 0);
 });
 
 test('dsh：卸载时清理旧版本写入默认 hooks.json 的条目', () => {
     const sb = sandbox();
-    const legacy = { hooks: { Stop: [{ hooks: [{ type: 'command', command: '"/x/.agents/agent-tidy/hooks/run-hook.sh" guard-diff --agent dsh' }] }] } };
+    const legacy = { hooks: { Stop: [{ hooks: [{ type: 'command', command: '"/x/.agents/agent-reins/hooks/run-hook.sh" guard-diff --agent dsh' }] }] } };
     sb.write('.dsh/hooks.json', legacy);
     sb.write('.dsh/AGENTS.md', '');
     sb.run('uninstall', '-a', 'dsh');
@@ -162,7 +162,7 @@ test('预检：任一目标配置损坏时不写入任何文件', () => {
     const out = runFails(() => sb.run('install', '-a', 'claude,codex'));
     assert.match(out, /预检失败，未写入任何文件/);
     assert.equal(sb.read('.codex/hooks.json'), '{ broken');
-    assert.ok(!fs.existsSync(sb.p('.agents', 'agent-tidy')));
+    assert.ok(!fs.existsSync(sb.p('.agents', 'agent-reins')));
     assert.ok(!fs.existsSync(sb.p('.claude', 'CLAUDE.md')));
 });
 
@@ -174,34 +174,34 @@ test('status：配置损坏时降级显示而不是退出；安装目录缺失�
     assert.match(out, /Codex\s+规则 ✓\s+skills 5\/5\s+hooks ⚠ 配置损坏/);
     assert.match(out, /Claude Code\s+规则 ✓/);
 
-    fs.rmSync(sb.p('.agents', 'agent-tidy', 'hooks'), { recursive: true });
+    fs.rmSync(sb.p('.agents', 'agent-reins', 'hooks'), { recursive: true });
     assert.match(sb.run('status'), /安装目录缺失或不完整/);
 });
 
 test('state.json 丢失时：卸载单个 agent 不会误删其他 agent 仍在使用的安装目录', () => {
     const sb = sandbox();
     sb.run('install', '-a', 'claude,codex');
-    fs.rmSync(sb.p('.agents', 'agent-tidy', 'state.json'));
+    fs.rmSync(sb.p('.agents', 'agent-reins', 'state.json'));
 
     sb.run('uninstall', '-a', 'codex');
-    assert.ok(fs.existsSync(sb.p('.agents', 'agent-tidy', 'hooks', 'guard-diff.mjs')), 'claude 仍有残留，安装目录必须保留');
-    assert.match(sb.read('.config/git/ignore'), /agent-tidy/);
+    assert.ok(fs.existsSync(sb.p('.agents', 'agent-reins', 'hooks', 'guard-diff.mjs')), 'claude 仍有残留，安装目录必须保留');
+    assert.match(sb.read('.config/git/ignore'), /agent-reins/);
     assert.ok(fs.lstatSync(sb.p('.claude', 'skills', 'ui-verify')).isSymbolicLink());
 
     // 不带 -a 时按磁盘残留卸载干净
     sb.run('uninstall');
-    assert.doesNotMatch(sb.read('.claude/CLAUDE.md'), /agent-tidy/);
-    assert.ok(!fs.existsSync(sb.p('.agents', 'agent-tidy')));
+    assert.doesNotMatch(sb.read('.claude/CLAUDE.md'), /agent-reins/);
+    assert.ok(!fs.existsSync(sb.p('.agents', 'agent-reins')));
 });
 
 test('个人偏好覆盖文件合并进规则区块', () => {
     const sb = sandbox();
-    sb.write('.agents/agent-tidy.local.md', '- 用中文交流；代码、命令、路径保持原样。');
+    sb.write('.agents/agent-reins.local.md', '- 用中文交流；代码、命令、路径保持原样。');
     sb.run('install', '-a', 'codex', '--skip', 'gitignore');
     const text = sb.read('.codex/AGENTS.md');
     assert.match(text, /## 个人偏好/);
     assert.match(text, /用中文交流/);
-    assert.ok(text.indexOf('用中文交流') < text.indexOf('agent-tidy:end'));
+    assert.ok(text.indexOf('用中文交流') < text.indexOf('agent-reins:end'));
 });
 
 test('Codex：提示未审批的 hook', () => {
@@ -221,9 +221,9 @@ test('dry-run 不写任何文件', () => {
 test('启动器：安装时记录的 node 失效后回退到其他 node', { skip: process.platform === 'win32' }, () => {
     const sb = sandbox();
     sb.run('install', '-a', 'claude', '--skip', 'gitignore');
-    fs.writeFileSync(sb.p('.agents', 'agent-tidy', 'node-path'), '/nonexistent/node');
+    fs.writeFileSync(sb.p('.agents', 'agent-reins', 'node-path'), '/nonexistent/node');
     const env = { ...sb.env, PATH: `${path.dirname(process.execPath)}:/usr/bin:/bin` };
-    const out = execFileSync(sb.p('.agents', 'agent-tidy', 'hooks', 'run-hook.sh'), ['session-start', '--agent', 'claude'],
+    const out = execFileSync(sb.p('.agents', 'agent-reins', 'hooks', 'run-hook.sh'), ['session-start', '--agent', 'claude'],
         { env, input: '{}', encoding: 'utf8' });
     assert.match(JSON.parse(out).hookSpecificOutput.additionalContext, /CPU \d+ 核/);
 });
@@ -231,10 +231,10 @@ test('启动器：安装时记录的 node 失效后回退到其他 node', { skip
 test('hooks 端到端：会话基线、提醒一次、危险命令、一致性检查', () => {
     const sb = sandbox();
     sb.run('install', '-a', 'claude', '--skip', 'gitignore');
-    const hook = (name, input, agent = 'claude') => execFileSync(sb.p('.agents', 'agent-tidy', 'hooks', 'run-hook.sh'),
+    const hook = (name, input, agent = 'claude') => execFileSync(sb.p('.agents', 'agent-reins', 'hooks', 'run-hook.sh'),
         [name, '--agent', agent], { env: sb.env, input: JSON.stringify(input), encoding: 'utf8' });
 
-    const repo = fs.mkdtempSync(path.join(os.tmpdir(), 'agent-tidy-repo-'));
+    const repo = fs.mkdtempSync(path.join(os.tmpdir(), 'agent-reins-repo-'));
     const put = (rel, text) => {
         fs.mkdirSync(path.dirname(path.join(repo, rel)), { recursive: true });
         fs.writeFileSync(path.join(repo, rel), text);

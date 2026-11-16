@@ -15,7 +15,7 @@ function decide(agent, reason) {
         hookSpecificOutput: {
             hookEventName: 'PreToolUse',
             permissionDecision: decision,
-            permissionDecisionReason: `[agent-tidy] ${reason}。${suffix}`,
+            permissionDecisionReason: `[agent-reins] ${reason}。${suffix}`,
         },
     });
 }

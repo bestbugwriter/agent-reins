@@ -30,7 +30,7 @@ const CONFIG_KEY = /\b[a-z][a-z0-9_-]*(?:\.[a-z][a-z0-9_-]*){2,}\b/g;
 const IMPORT_LINE = /^\s*(import|package|from|require|using|#include|use)\b/;
 const distinctive = (id) => /[a-z][A-Z]/.test(id) || /[A-Za-z0-9]_[A-Za-z0-9]/.test(id);
 
-/** 校验并合并项目配置 .agent-tidy.json；返回 { config, error } */
+/** 校验并合并项目配置 .agent-reins.json；返回 { config, error } */
 export function resolveConfig(raw, { hasOpenspec = false } = {}) {
     const config = structuredClone(DEFAULT_CONFIG);
     let error = null;

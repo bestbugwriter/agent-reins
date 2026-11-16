@@ -10,6 +10,6 @@ for n in "$recorded" "$(command -v node 2>/dev/null)" "$nvm_latest" /opt/homebre
         exec "$n" "$script" "$@"
     fi
 done
-echo "[agent-tidy] 找不到 node，hook 已跳过；请重新运行 agent-tidy install" >&2
+echo "[agent-reins] 找不到 node，hook 已跳过；请重新运行 agent-reins install" >&2
 cat >/dev/null
 exit 0
