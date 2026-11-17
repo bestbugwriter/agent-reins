@@ -54,7 +54,7 @@ agent-reins uninstall -a codex     # 只卸载指定 agent
 
 | hook | 时机 | 作用 |
 |---|---|---|
-| `session-start` | 会话开始（Kimi 另注册 PostCompact） | 实时输出本机 CPU、内存、磁盘信息（不落盘）；记录工作区基线与基线提交；会话压缩后重申规则要点 |
+| `session-start` | 会话开始（Kimi 另注册 PostCompact） | 实时输出机器环境（CPU、内存、磁盘，会话开始时检测、不落盘）；记录工作区基线与基线提交；会话压缩后重申规则要点 |
 | `guard-tool` | 执行工具前 | 危险命令要求确认（Codex、Kimi 不支持询问，改为拒绝）；在 Claude Code、dsh、Qoder 中修改 AGENTS.md、CLAUDE.md、rules 前要求确认，包括 shell 重定向、`tee`、`sed -i` 改写 |
 | `track-test` | 工具执行后 | 记录本会话运行过的测试命令（只记运行、不判成败），供 guard-diff 核对 |
 | `guard-diff` | 结束前 | 只检查**本会话**改过的文件（含会话中的提交），同一组问题只提醒一次 |
@@ -62,7 +62,7 @@ agent-reins uninstall -a codex     # 只卸载指定 agent
 `guard-diff` 检查的内容：
 
 - **文档数量**：新增文档；流程目录（如 `openspec/`）里的文档数量和行数超过上限；文档行数远多于代码。
-- **环境事实**：把"本机/VPS 只有 xx 内存"之类的内容写进了文档或 agent 配置。
+- **环境事实**：把机器容量与配置之类的环境信息（例如构建机的核数、内存大小）写进了文档或 agent 配置。
 - **测试**：删除测试、加 skip；改了逻辑代码却没有改任何测试；改了逻辑代码但本会话没有任何测试运行记录。
 - **一致性**：删除或改名的函数、变量、配置项仍出现在其他文件里（文档、注释、调用点）；文档里的 `File.java#symbol` 锚点已经不存在，或文档引用了已删除的文件。
 

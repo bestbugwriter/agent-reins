@@ -62,7 +62,7 @@ Files are copied to `~/.agents/agent-reins/` first; agent directories only recei
 What `guard-diff` checks:
 
 - **Doc count**: new docs; doc count/line budgets in flow directories (e.g. `openspec/`); docs vastly outnumbering code.
-- **Environment facts**: machine facts like "this VPS only has xx RAM" written into docs or agent config.
+- **Environment facts**: machine capacity or configuration (e.g. a build box's core count and memory size) written into docs or agent config.
 - **Tests**: deleted tests, added skip markers; logic changed without touching any test; logic changed with no test-run record in the session.
 - **Consistency**: deleted/renamed functions, variables, or config keys still referenced elsewhere (docs, comments, call sites); `File.java#symbol` anchors in docs that no longer exist; docs referencing deleted files.
 
