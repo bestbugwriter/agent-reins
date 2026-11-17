@@ -12,7 +12,8 @@
     "rules",
     "skills",
     "hooks",
-    "templates"
+    "templates",
+    "README.en.md"
   ],
   "scripts": {
     "test": "node --test \"test/*.test.mjs\""

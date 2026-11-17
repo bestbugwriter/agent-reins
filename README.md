@@ -2,13 +2,26 @@
 
 让 coding agent 少写文档、不越界、改动保持一致、不谎报完成。一条命令把同一套全局规则、Skills 和 Hooks 安装到 Claude Code、Codex、DeepSeek Harness、Qoder 和 Kimi Code。
 
+[English README](README.en.md)
+
+## 安装与使用
+
 ```bash
-npx agent-reins install            # 交互选择 agent
-npx agent-reins install -a claude,codex,qoder,kimi --dry-run
-npx agent-reins install -a dsh --skip hooks
-npx agent-reins status
-npx agent-reins uninstall -a codex
+npm install -g agent-reins         # 全局安装
+agent-reins install                # 交互选择要接入的 agent
+agent-reins status                 # 查看各 agent 的规则 / skills / hooks 状态
+agent-reins uninstall -a codex     # 只卸载指定 agent
 ```
+
+不想全局安装时用 npx：`npx agent-reins install -a claude,qoder`。
+
+常用参数：
+
+- `-a, --agent`：逗号分隔的目标 agent（`claude,codex,dsh,qoder,kimi`）；不填时交互选择，非交互终端默认安装所有检测到的 agent。
+- `--skip`：跳过的部分（`rules,skills,hooks,gitignore`），例如 `--skip hooks`。
+- `--dry-run`：只打印将要执行的操作，不写任何文件。
+
+安装后**新开会话**生效；Codex 还需在其 UI 审批 hook，dsh 需挂载插件桥（见下节）。重复安装是幂等的；卸载只移除 agent-reins 写入的内容。
 
 ## 安装了什么
 
