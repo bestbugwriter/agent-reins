@@ -10,8 +10,6 @@ npx agent-reins status
 npx agent-reins uninstall -a codex
 ```
 
-npm 包发布前，克隆仓库后用 `node bin/agent-reins.mjs …` 运行同样的命令。
-
 ## 安装了什么
 
 | 部分 | Claude Code | Codex | DeepSeek Harness | Qoder | Kimi Code |
