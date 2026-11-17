@@ -1,6 +1,6 @@
 {
   "name": "agent-reins",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "让 coding agent 少写文档、不越界、改动保持一致、不谎报完成：一套可安装到 Claude Code / Codex / DeepSeek Harness / Qoder / Kimi Code 的全局规则、Skills 与 Hooks",
   "type": "module",
   "bin": {
