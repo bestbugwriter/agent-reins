@@ -50,6 +50,10 @@ export const dshProfiles = () => {
     }
 };
 
+// 根 cordis.patch.yml 的 insert 对所有 profile 生效（组合树证实），但插件包按 profile
+// 解析自各自的 node_modules：桥挂载 ≠ 插件包已安装
+export const dshBridgePackage = (profile) => fs.existsSync(path.join(dshHome(), 'profiles', profile, 'node_modules', '@deepseek-ai', 'dsh-hooks-claude-code'));
+
 // 只有 claude-code 方言的桥能识别 agent-reins 写入的 Claude 格式 hooks
 export const dshHooksFiles = () => [...new Set(dshBridges().filter((b) => b.plugin.endsWith('claude-code') && b.configPath).map((b) => b.configPath))];
 

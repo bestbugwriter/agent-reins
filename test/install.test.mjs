@@ -123,20 +123,24 @@ test('dsh：没有挂载插件桥时跳过 hooks，规则和 skills 照常安装
     assert.match(sb.run('status'), /DeepSeek Harness\s+规则 ✓\s+skills 5\/5\s+hooks 0/);
 });
 
-test('dsh：按 profile 检测桥——根目录挂了桥但桌面版 profile 没挂时，如实提示', () => {
+test('dsh：根补丁覆盖所有 profile，插件包按 profile 解析', () => {
     const sb = sandbox();
     dshBridge(sb); // 根目录 cordis.patch.yml 挂了桥（本机实际情况）
     sb.write('.dsh/profiles/desktop/package.json', { name: 'dsh-profile-desktop' });
-    sb.write('.dsh/profiles/desktop/cordis.patch.yml', '- id: llm-pi-ai\n  config: {}\n');
+    sb.write('.dsh/profiles/tui/package.json', { name: 'dsh-profile-tui' });
+    // tui 装了插件包，desktop 没装
+    fs.mkdirSync(sb.p('.dsh', 'profiles', 'tui', 'node_modules', '@deepseek-ai', 'dsh-hooks-claude-code'), { recursive: true });
     const out = sb.run('install', '-a', 'dsh', '--skip', 'gitignore');
-    assert.match(out, /desktop profile 没有挂载 hooks 插件桥/);
+    assert.match(out, /desktop profile 桥已挂载但插件包未安装/);
+    assert.doesNotMatch(out, /没有挂载 hooks 插件桥/);
     const st = sb.run('status');
-    assert.match(st, /profile desktop\s+未挂载 hooks 插件桥，hooks 不会执行/);
-    assert.match(st, /（根目录）/);
+    assert.match(st, /profile tui\s+@deepseek-ai\/dsh-hooks-claude-code → .*hooks\.json（根补丁，全局生效）/);
+    assert.match(st, /profile desktop\s+@deepseek-ai\/dsh-hooks-claude-code 已挂载（根补丁）但插件包未安装/);
 
-    // 桌面版 profile 挂上桥、并指向独立文件后，hooks 写到那个文件
+    // desktop 自己的 profile 挂桥并指向独立文件后，hooks 写到那个文件
     sb.write('.dsh/profiles/desktop/cordis.patch.yml',
         `- insert:\n    - id: agent-reins-hooks\n      name: "@deepseek-ai/dsh-hooks-claude-code"\n      config:\n        configPath: "${sb.p('.dsh', 'agent-reins-hooks.json')}"\n`);
+    fs.mkdirSync(sb.p('.dsh', 'profiles', 'desktop', 'node_modules', '@deepseek-ai', 'dsh-hooks-claude-code'), { recursive: true });
     sb.run('install', '-a', 'dsh', '--skip', 'gitignore');
     assert.equal(ours(sb.json('.dsh/agent-reins-hooks.json').hooks, 'Stop').length, 1);
     assert.match(sb.run('status'), /profile desktop\s+@deepseek-ai\/dsh-hooks-claude-code → .*agent-reins-hooks\.json/);

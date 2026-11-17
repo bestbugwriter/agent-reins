@@ -2,7 +2,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { AGENTS, kitHome, overlayFile, gitIgnoreFile, dshBridges, dshProfiles } from './agents.mjs';
+import { AGENTS, kitHome, overlayFile, gitIgnoreFile, dshBridges, dshProfiles, dshBridgePackage } from './agents.mjs';
 
 export const PKG_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 export const VERSION = JSON.parse(fs.readFileSync(path.join(PKG_ROOT, 'package.json'), 'utf8')).version;
@@ -311,10 +311,14 @@ export function install({ agents, parts = PARTS, dryRun = false, log = console.l
             }
             if (id === 'codex') notes.push('Codex 会跳过未审批的新 hook：请打开 Codex，在 hooks 审批提示中信任 agent-reins 的 4 个 hook');
             if (id === 'dsh') {
-                const bridged = new Set(dshBridges().map((b) => b.profile));
-                const missing = dshProfiles().filter((p) => !bridged.has(p));
+                const bridges = dshBridges();
+                const hasRoot = bridges.some((b) => b.profile === '（根目录）');
+                const mounted = (p) => hasRoot || bridges.some((b) => b.profile === p);
+                const missing = dshProfiles().filter((p) => !mounted(p));
+                const noPkg = dshProfiles().filter((p) => mounted(p) && !dshBridgePackage(p));
                 if (!files.length) notes.push('dsh 没有任何 profile 挂载 hooks 插件桥（@deepseek-ai/dsh-hooks-claude-code），已跳过 dsh 的 hooks；规则和 skills 已安装');
                 if (missing.length) notes.push(`dsh 的 ${missing.join('、')} profile 没有挂载 hooks 插件桥，这些 profile 中 hooks 不会执行；运行 agent-reins status 查看详情`);
+                if (noPkg.length) notes.push(`dsh 的 ${noPkg.join('、')} profile 桥已挂载但插件包未安装，hooks 不会执行：desktop 请在 App 插件管理安装与 App 同版本的 @deepseek-ai/dsh-hooks-claude-code，其余 profile 用 dsh plugin --profile <name> add @deepseek-ai/dsh-hooks-claude-code@<与 dsh 运行时同版本>`);
             }
         }
         // 每完成一个 agent 就记录，中途失败时 uninstall 仍能清理已写入的部分
@@ -413,8 +417,12 @@ export function status() {
         };
         if (id === 'dsh') {
             const bridges = dshBridges();
-            row.profiles = dshProfiles().map((p) => ({ profile: p, bridge: bridges.find((b) => b.profile === p) || null }));
-            row.otherBridges = bridges.filter((b) => !dshProfiles().includes(b.profile));
+            const root = bridges.find((b) => b.profile === '（根目录）') || null;
+            row.profiles = dshProfiles().map((p) => {
+                const own = bridges.find((b) => b.profile === p) || null;
+                return { profile: p, bridge: own || root, viaRoot: !own && !!root, pkg: dshBridgePackage(p) };
+            });
+            row.otherBridges = bridges.filter((b) => b.profile !== '（根目录）' && !dshProfiles().includes(b.profile));
         }
         if (id === 'codex' && hooks.count) row.untrusted = codexUntrusted(hooks.found);
         return row;

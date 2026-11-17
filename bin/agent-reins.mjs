@@ -59,7 +59,10 @@ function printStatus() {
         if (r.hooksError) console.log(`      ${r.hooksError}`);
         if (r.id === 'dsh' && r.installed) {
             for (const p of r.profiles) {
-                const where = p.bridge ? `${p.bridge.plugin} → ${p.bridge.configPath || '项目级相对路径（全局 hooks 不适用）'}` : '未挂载 hooks 插件桥，hooks 不会执行';
+                const where = !p.bridge ? '未挂载 hooks 插件桥，hooks 不会执行'
+                    : !p.pkg ? `${p.bridge.plugin} 已挂载（${p.viaRoot ? '根补丁' : 'profile 补丁'}）但插件包未安装，hooks 不会执行`
+                        + (p.profile === 'desktop' ? '；请在 App 插件管理安装与 App 同版本' : '')
+                    : `${p.bridge.plugin} → ${p.bridge.configPath || '项目级相对路径（全局 hooks 不适用）'}${p.viaRoot ? '（根补丁，全局生效）' : ''}`;
                 console.log(`      profile ${p.profile.padEnd(8)} ${where}`);
             }
             for (const b of r.otherBridges) console.log(`      ${b.profile} ${b.file}：${b.plugin} → ${b.configPath || '相对路径'}`);

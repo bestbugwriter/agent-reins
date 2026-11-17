@@ -44,9 +44,11 @@ agent-reins uninstall -a codex     # 只卸载指定 agent
 ## 各 agent 安装后要做的事
 
 - **Codex**：新增或修改的 hook 默认不执行。打开 Codex，按提示审批 agent-reins 的 4 个 hook。`agent-reins status` 会提示还有几个没审批。
-- **DeepSeek Harness**：dsh 的每个 profile（desktop、tui、web）各自加载插件。hooks 由官方插件桥 `@deepseek-ai/dsh-hooks-claude-code` 执行，安装器只会把 hooks 写进**已挂载桥的 profile** 所读取的文件；没有挂载桥时跳过，`status` 会逐个 profile 显示情况。
-  - 桌面版的插件只能在 App 里安装（`dsh plugin --profile desktop` 会提示 profile 由 Electron 应用管理）。在插件管理里安装与 App 同版本的 `@deepseek-ai/dsh-hooks-claude-code`，把 `configPath` 设为一个独立文件（例如 `~/.dsh/agent-reins-hooks.json`），不要和其他工具共用 `~/.dsh/hooks.json`，否则会一起激活其他工具的 hooks。然后重新运行 `agent-reins install -a dsh`，并重启 App（桥只在启动时读取配置）。
-  - 桥已挂载不等于在运行：请新开一个 dsh 会话，确认上下文里出现了本机环境信息。
+- **DeepSeek Harness**：hooks 由官方插件桥 `@deepseek-ai/dsh-hooks-claude-code` 执行。根 `cordis.patch.yml` 里的桥 insert 对**所有 profile 生效**（`dsh --profile <name> --dump-config` 的组合树可验证），但插件包按 profile 解析自各自的 node_modules，所以**每个 profile 都要各装一份**：
+  - tui / web：`dsh plugin --profile <name> add @deepseek-ai/dsh-hooks-claude-code@<与 dsh 运行时同版本>`（版本不匹配会被启动拒绝）。
+  - desktop：只能在 App 的插件管理里安装（`dsh plugin --profile desktop` 会提示 profile 由 Electron 应用管理），装与 App 同版本的桥。
+  - `configPath` 建议设为独立文件（例如 `~/.dsh/agent-reins-hooks.json`）；与其他工具共用 `~/.dsh/hooks.json` 会一起激活其他工具的 hooks。改完配置重跑 `agent-reins install -a dsh` 并重启对应客户端（桥只在启动时读取配置）。
+  - `status` 按 profile 区分三种状态：未挂载桥 / 桥已挂载但插件包未安装 / 已生效。桥已挂载不等于在运行：新开 dsh 会话，确认上下文里出现了本机环境信息。
 - **Qoder**：hooks 协议与 Claude Code 兼容，装完新开会话即生效，无需额外审批。
 - **Kimi Code**：hooks 写在 `config.toml` 的托管区块里，与你已有的 `[[hooks]]` 共存，无需审批。Kimi 的 hook 只支持 deny、不支持 ask，所以危险命令直接拒绝（用户确认后可自己执行），修改指令文件的拦截不启用、交给规则约束。Kimi 自带的 `dangerous_command_guard` 和 `[[permission.rules]]` 仍然生效，建议保留作为补充。
 
