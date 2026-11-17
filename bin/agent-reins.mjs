@@ -18,7 +18,8 @@ const HELP = `agent-reins ${VERSION}
 `;
 
 function parse(argv) {
-    const opts = { cmd: argv[0], agents: null, skip: [], dryRun: false };
+    const first = argv[0];
+    const opts = { cmd: first === '-h' || first === '--help' ? 'help' : first, agents: null, skip: [], dryRun: false };
     for (let i = 1; i < argv.length; i++) {
         const a = argv[i];
         if (a === '-a' || a === '--agent') opts.agents = argv[++i].split(',').map((s) => s.trim()).filter(Boolean);

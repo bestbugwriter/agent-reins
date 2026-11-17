@@ -218,6 +218,13 @@ test('dry-run 不写任何文件', () => {
     assert.deepEqual(fs.readdirSync(sb.home), []);
 });
 
+test('CLI：--help / -h 作为首参数或无参数时输出帮助', () => {
+    const sb = sandbox();
+    for (const args of [['--help'], ['-h'], []]) {
+        assert.match(sb.run(...args), /用法：/, JSON.stringify(args));
+    }
+});
+
 test('启动器：安装时记录的 node 失效后回退到其他 node', { skip: process.platform === 'win32' }, () => {
     const sb = sandbox();
     sb.run('install', '-a', 'claude', '--skip', 'gitignore');
